@@ -1,0 +1,28 @@
+---
+title: "Writing Your First Posts"
+description: "How to use this blog for launch marketing: what to write, and how the pipeline turns MDX into SEO-ready pages."
+date: "2026-01-02"
+tags: ["Guides"]
+author: "Acme Team"
+---
+
+# Writing Your First Posts
+
+A placeholder guide from the white-label foundation — replace it alongside
+`hello-world.mdx`.
+
+## Suggested launch content
+
+1. **Problem posts** — articulate the pain your product removes, in the words
+   your buyers use when they search.
+2. **How-to posts** — practical guidance your audience wants even without
+   your product; these earn trust and rankings.
+3. **Comparison posts** — your product versus the status quo (usually
+   spreadsheets and email).
+
+## Mechanics
+
+Each `.mdx` file in `content/blog/` becomes a route at `/blog/<filename>`.
+Frontmatter drives the listing card, metadata, and JSON-LD. The author
+default for new products lives in `config/site.ts` (`siteConfig.blog.authorName`) —
+keep frontmatter `author` in sync or extend `lib/blog.ts` to fall back to it.

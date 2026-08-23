@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Placeholder white-label mark: replace per product (with logo.png,
+       logo-512.png, apple-touch-icon.png, favicon-16/32.png, app/icon.png) -->
+  <rect width="512" height="512" rx="96" fill="#003366"/>
+  <rect x="128" y="140" width="256" height="56" rx="28" fill="#ffffff" opacity="0.55"/>
+  <rect x="104" y="228" width="304" height="56" rx="28" fill="#ffffff" opacity="0.8"/>
+  <rect x="80" y="316" width="352" height="56" rx="28" fill="#007A5E"/>
+</svg>

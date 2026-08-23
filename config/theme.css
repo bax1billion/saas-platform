@@ -1,0 +1,114 @@
+/*
+ * White-label theme — the product's color system. Each product edits the
+ * raw palette here; the semantic tokens below map it onto shadcn/ui.
+ *
+ * NOTE (Phase 2 of WHITE_LABEL_PLAN.md): the raw palette still uses legacy
+ * brand-named variables (--navy, --emerald, …) because existing markup uses
+ * utilities like `bg-navy`. The Phase 2 sweep replaces those utilities with
+ * semantic ones (bg-primary, bg-muted, …), after which the raw palette
+ * becomes a private implementation detail of this file.
+ *
+ * The current values are placeholder defaults (navy/green) — replace per
+ * product. If you change them, also update `ogTheme` in config/site.ts
+ * (OG image generation can't read CSS variables).
+ */
+
+:root {
+  /* Raw palette (placeholder defaults — replace per product) */
+  --navy: #003366; /* brand dark: headings, body text, dark surfaces */
+  --emerald: #007a5e; /* primary action */
+  --sky: #4ab3e6; /* info accent / secondary data */
+  --warm-gray: #f5f5f7; /* neutral surface */
+  --amber: #f6b700; /* warning status */
+  --red: #e55151; /* destructive / error status */
+  --white: #ffffff;
+
+  /* shadcn/ui semantic tokens — mapped onto the palette */
+  --background: #ffffff;
+  --foreground: var(--navy);
+  --primary: var(--emerald);
+  --primary-foreground: #ffffff;
+  --secondary: var(--warm-gray);
+  --secondary-foreground: var(--navy);
+  --muted: var(--warm-gray);
+  --muted-foreground: #003366b3;
+  --accent: var(--warm-gray);
+  --accent-foreground: var(--navy);
+  --destructive: var(--red);
+  --destructive-foreground: #ffffff;
+  --border: #00336619;
+  --input: #00336626;
+  --ring: var(--emerald);
+  --radius: 0.5rem;
+
+  /* Status tokens — reserved for state meaning (never series identity) */
+  --success: var(--emerald);
+  --success-foreground: #ffffff;
+  --warning: var(--amber);
+  --warning-foreground: var(--navy);
+  --info: var(--sky);
+  --info-foreground: var(--navy);
+
+  /* Charts — categorical series identity, fixed assignment order */
+  --chart-1: var(--emerald);
+  --chart-2: var(--sky);
+  --chart-3: var(--amber);
+  --chart-4: var(--navy);
+  --chart-5: var(--red);
+
+  /* Dark marketing surface (hero/footer sections, modal scrims) — stays dark
+     in both light and dark modes */
+  --brand-dark: var(--navy);
+  --brand-dark-foreground: #ffffff;
+
+  /* Sidebar (dark app-shell surface) */
+  --sidebar: var(--navy);
+  --sidebar-foreground: #ffffffcc;
+  --sidebar-primary: var(--emerald);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ffffff1a;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #ffffff1a;
+  --sidebar-ring: var(--emerald);
+}
+
+/*
+ * Dark mode — a designed palette, not an automatic flip. Steps are chosen
+ * against the dark surface; re-validate contrast if you change the palette.
+ * Toggled by next-themes setting `class="dark"` on <html>.
+ */
+.dark {
+  --background: #0b1526;
+  --foreground: #e6edf5;
+  --primary: #00a37e; /* brighter step of the primary hue for dark surfaces */
+  --primary-foreground: #04121f;
+  --secondary: #16233a;
+  --secondary-foreground: #e6edf5;
+  --muted: #16233a;
+  --muted-foreground: #a5b4c8;
+  --accent: #16233a;
+  --accent-foreground: #e6edf5;
+  --destructive: #f07575;
+  --destructive-foreground: #04121f;
+  --border: #ffffff1a;
+  --input: #ffffff24;
+  --ring: #00a37e;
+
+  --success: #00a37e;
+  --success-foreground: #04121f;
+  --warning: #f6b700;
+  --warning-foreground: #04121f;
+  --info: #4ab3e6;
+  --info-foreground: #04121f;
+
+  /* Categorical series re-stepped for the dark surface (navy is unreadable) */
+  --chart-1: #00a37e;
+  --chart-2: #4ab3e6;
+  --chart-3: #f6b700;
+  --chart-4: #7ea4d6;
+  --chart-5: #f07575;
+
+  --sidebar: #0d1b30;
+  --sidebar-primary: #00a37e;
+  --sidebar-ring: #00a37e;
+}
