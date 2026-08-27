@@ -1,15 +1,18 @@
+import type { ComponentType } from "react";
 import Navbar from "./components/Navbar";
 import Hero from "./components/Hero";
 import PainPoints from "./components/PainPoints";
+import Modules from "./components/Modules";
 import Features from "./components/Features";
-import Dashboard from "./components/Dashboard";
-import Standards from "./components/Standards";
+import ProductPreview from "./components/ProductPreview";
+import TrustStrip from "./components/TrustStrip";
 import Pricing from "./components/Pricing";
 import Footer from "./components/Footer";
 import EarlyAccessModal from "./components/EarlyAccessModal";
 import AuthModal from "./components/AuthModal";
 import { siteConfig } from "@/config/site";
 import { tiers } from "@/config/pricing";
+import { landing, type LandingSectionId } from "@/config/landing";
 
 const coreTier = tiers.find((tier) => tier.id === "CORE");
 
@@ -39,6 +42,17 @@ const softwareSchema = {
   },
 };
 
+/** Section id → renderer. Order and presence come from config/landing.ts. */
+const sectionComponents: Record<LandingSectionId, ComponentType> = {
+  hero: Hero,
+  painPoints: PainPoints,
+  modules: Modules,
+  features: Features,
+  preview: ProductPreview,
+  trust: TrustStrip,
+  pricing: Pricing,
+};
+
 export default function Home() {
   return (
     <>
@@ -55,12 +69,10 @@ export default function Home() {
         }}
       />
       <Navbar />
-      <Hero />
-      <PainPoints />
-      <Features />
-      <Dashboard />
-      <Standards />
-      <Pricing />
+      {landing.sections.map((id) => {
+        const Section = sectionComponents[id];
+        return <Section key={id} />;
+      })}
       <Footer />
       <EarlyAccessModal />
       <AuthModal />

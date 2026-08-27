@@ -1,51 +1,21 @@
-import { constructIcons } from "./icons";
-import type { ComponentType, SVGProps } from "react";
-
-const features: {
-  title: string;
-  description: string;
-  icon: ComponentType<SVGProps<SVGSVGElement> & { strokeWidth?: number }>;
-}[] = [
-  {
-    title: "Multi-tenant workspaces",
-    description:
-      "Give every customer an isolated workspace with its own members, data and settings. Clean separation by default.",
-    icon: constructIcons.workspaces,
-  },
-  {
-    title: "Role-based access",
-    description:
-      "Invite teammates with the right level of permission. Owners, admins and members work out of the box.",
-    icon: constructIcons.access,
-  },
-  {
-    title: "Billing & plans",
-    description:
-      "Subscriptions, upgrades and invoices handled end to end. Customers change plans without a support ticket.",
-    icon: constructIcons.billing,
-  },
-  {
-    title: "Audit trail",
-    description:
-      "Every important action is logged with who, what and when. A complete history you can rely on.",
-    icon: constructIcons.auditTrail,
-  },
-];
+import { landing } from "@/config/landing";
 
 export default function Features() {
+  const { features } = landing;
+
   return (
     <section id="features" className="bg-muted py-20 sm:py-24">
       <div className="mx-auto max-w-6xl px-6">
         <div className="text-center">
           <h2 className="font-serif text-3xl font-bold text-foreground sm:text-4xl">
-            Everything you need to launch
+            {features.headline}
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-foreground/60">
-            Four modules. One solid foundation. No enterprise bloat.
+            {features.subheadline}
           </p>
         </div>
         <div className="mt-12 grid gap-8 sm:grid-cols-2">
-          {features.map((feature) => {
+          {features.cards.map((feature) => {
             const Icon = feature.icon;
             return (
               <div
