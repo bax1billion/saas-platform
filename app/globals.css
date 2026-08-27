@@ -14,8 +14,8 @@
 
 @theme inline {
   /* Typography */
-  --font-sans: var(--font-inter);
-  --font-serif: var(--font-merriweather);
+  --font-sans: var(--font-body);
+  --font-serif: var(--font-heading);
 
   /* shadcn/ui semantic tokens */
   --color-background: var(--background);
@@ -30,6 +30,8 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -68,7 +70,7 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-body), ui-sans-serif, system-ui, sans-serif;
   font-size: 16px;
   line-height: 1.5;
 }
@@ -89,7 +91,7 @@ body {
 }
 
 .prose :where(h1, h2, h3, h4):not(:where([class~="not-prose"] *)) {
-  font-family: var(--font-merriweather), ui-serif, Georgia, serif;
+  font-family: var(--font-heading), ui-serif, Georgia, serif;
 }
 
 .prose :where(h1):not(:where([class~="not-prose"] *)) {

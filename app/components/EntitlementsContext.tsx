@@ -12,6 +12,7 @@ import {
 import { useAuth } from "./AuthContext";
 import { getDataClient, type Schema } from "@/lib/data-client";
 import { resolveEntitledModules } from "@/lib/modules";
+import { parseJsonField } from "@/lib/json";
 import type { TierId } from "@/config/pricing";
 
 type UserRecord = Schema["User"]["type"];
@@ -153,8 +154,7 @@ export default function EntitlementsProvider({
   const isLoading = authLoading || loadedFor !== currentUserId;
 
   const value = useMemo<EntitlementsContextType>(() => {
-    const orgSettings = ((org?.settings as OrgSettings | null) ??
-      {}) as OrgSettings;
+    const orgSettings = parseJsonField<OrgSettings>(org?.settings, {});
     const status = subscription?.status ?? null;
     const isActive =
       (status !== null && ACCESS_GRANTING.includes(status)) ||

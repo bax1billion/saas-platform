@@ -19,6 +19,7 @@ import { useAuth } from "./AuthContext";
 import { useEntitlements } from "./EntitlementsContext";
 import ModuleIcon from "./ModuleIcon";
 import PastDueBanner from "./PastDueBanner";
+import { Toaster } from "@/components/ui/sonner";
 
 type NavLinkProps = {
   href: string;
@@ -220,6 +221,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
         <main className="flex-1">{children}</main>
       </div>
+      <Toaster position="bottom-right" />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Merriweather } from "next/font/google";
+import { Inter, Lora } from "next/font/google";
 import "./globals.css";
 import { siteConfig, pageTitle } from "@/config/site";
 import AmplifyProvider from "./components/AmplifyProvider";
@@ -7,14 +7,16 @@ import AuthProvider from "./components/AuthContext";
 import EarlyAccessProvider from "./components/EarlyAccessContext";
 import ThemeProvider from "./components/ThemeProvider";
 
-const inter = Inter({
-  variable: "--font-inter",
+// Fonts are part of the theme: swap the faces here, keep the variable
+// names (--font-body / --font-heading) so components never change.
+const bodyFont = Inter({
+  variable: "--font-body",
   subsets: ["latin"],
 });
 
-const merriweather = Merriweather({
-  variable: "--font-merriweather",
-  weight: ["400", "700"],
+const headingFont = Lora({
+  variable: "--font-heading",
+  weight: ["400", "600", "700"],
   subsets: ["latin"],
 });
 
@@ -55,7 +57,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${inter.variable} ${merriweather.variable} antialiased`}
+        className={`${bodyFont.variable} ${headingFont.variable} antialiased`}
       >
         <ThemeProvider>
           <AmplifyProvider>
