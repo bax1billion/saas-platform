@@ -6,6 +6,7 @@ import { newsletterSubscriberTriggerFunction } from '../functions/newsletter-sub
 import { sesWebhookHandlerFunction } from '../functions/ses-webhook-handler/resource';
 import { stripeWebhookHandlerFunction } from '../functions/stripe-webhook-handler/resource';
 import { createCheckoutSessionFunction } from '../functions/create-checkout-session/resource';
+import { createOrganizationFunction } from '../functions/create-organization/resource';
 import {
   verticalModels,
   verticalEntityTypes,
@@ -247,6 +248,10 @@ const schema = a
         stripeProductId: a.string(),
         tier: a.ref('SubscriptionTier').required(),
         status: a.ref('SubscriptionStatus').required(),
+        /** Add-on module ids (config/modules.ts) mirrored from the
+         *  subscription's line items — Stripe Product metadata `module=<id>`.
+         *  See docs/modules.md. */
+        modules: a.string().array(),
         currentPeriodStart: a.datetime(),
         currentPeriodEnd: a.datetime(),
         trialStart: a.datetime(),
@@ -320,10 +325,28 @@ const schema = a
       .arguments({
         tier: a.ref('SubscriptionTier').required(),
         orgId: a.id().required(),
+        /** Add-on module ids to include as extra line items. */
+        modules: a.string().array(),
       })
       .returns(a.ref('CheckoutSessionResponse'))
       .authorization((allow) => [allow.authenticated()])
       .handler(a.handler.function(createCheckoutSessionFunction)),
+
+    CreateOrganizationResponse: a.customType({
+      orgId: a.id().required(),
+      slug: a.string().required(),
+    }),
+
+    /** Onboarding: create the caller's org, link their User, elevate them
+     *  to Admin. Idempotent per user. */
+    createOrganization: a
+      .mutation()
+      .arguments({
+        name: a.string().required(),
+      })
+      .returns(a.ref('CreateOrganizationResponse'))
+      .authorization((allow) => [allow.authenticated()])
+      .handler(a.handler.function(createOrganizationFunction)),
 
     // ═══════════════════════════════════════════════════════════════════
     // Vertical models (per-product, from ./vertical.ts)
@@ -341,6 +364,9 @@ const schema = a
     allow.resource(stripeWebhookHandlerFunction).to(['query', 'mutate']),
     allow
       .resource(createCheckoutSessionFunction)
+      .to(['query', 'mutate']),
+    allow
+      .resource(createOrganizationFunction)
       .to(['query', 'mutate']),
   ]);
 

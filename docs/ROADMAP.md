@@ -20,14 +20,23 @@ between this foundation and product repos, see [`CONTRIBUTING.md`](../CONTRIBUTI
   `CDK_WIRING_DEPLOY.md` for the patterns)
 - Theming: semantic tokens only, one-file re-theme (`config/theme.css`),
   designed dark palette (pinned to light pending QA)
+- Landing: all copy and section order in `config/landing.ts`; module
+  showcase, `/modules/[id]` pages and pricing add-on strip render from the
+  module registry (`config/modules.ts`, `docs/modules.md`)
+- App shell: `(app)` route group with auth/onboarding gate, sidebar built
+  from the module registry, `EntitlementsProvider` (org, tier, status,
+  entitled modules), `ModuleShell` per-module gate with upsell state,
+  dashboard, org + billing settings pages
+- Onboarding: `/onboarding` → `createOrganization` mutation (Lambda creates
+  the org, links the User, elevates the creator to Admin)
 
 **Wired but stubbed** — the Lambdas exist and are connected, their bodies are
 TODOs: `stripe-webhook-handler`, `event-logger`, `organization-trigger` seed
 execution, `s3-file-trigger` validation, `newsletter-subscriber-trigger`,
 `ses-webhook-handler` DB updates.
 
-**Missing entirely** — entitlement enforcement, authenticated app shell,
-customer portal, legal pages.
+**Missing entirely** — backend entitlement enforcement (scale limits on
+create paths), customer portal, member invites, legal pages.
 
 ## First deploy: AWS account bootstrap
 
@@ -143,14 +152,10 @@ Implements `docs/subscriptions-and-payments.md`:
   billing page; server-side verification on `/subscribe/success`; PAST_DUE
   banner
 
-### 2. App shell & protected routes
-- Route groups: `(marketing)` / `(app)` (+ `(auth)` pages — see decisions)
-- `(app)/layout.tsx`: auth + subscription gates, shadcn sidebar shell
-  (sidebar tokens exist), org switcher, user menu
-- Onboarding: org creation (name → slug), `User.orgId` wiring, Admin
-  elevation
-- First real `components/ui/*` adoption; Recharts per
-  `docs/playbooks/dashboards-dataviz.md`
+### 2. App shell & protected routes (shell + onboarding shipped)
+- Remaining: member invites (`/settings` roster is read-only), org switcher
+  for multi-org users, `(marketing)` route group move, `(auth)` pages
+- Recharts per `docs/playbooks/dashboards-dataviz.md`
 - Dark mode: visual QA of the dark palette, theme toggle, then unpin
   `ThemeProvider` (`defaultTheme="system"`, `enableSystem`)
 
@@ -162,10 +167,7 @@ Implements `docs/subscriptions-and-payments.md`:
 - Document the vertical trigger-authoring pattern (function +
   `streamEventSources` entry + IAM)
 
-### 4. Config-driven landing
-- `config/landing.tsx`: typed section content (hero, pains, features,
-  social proof; pricing already pulls from `config/pricing.ts`)
-- Composable section list (products pick sections and order)
+### 4. Config-driven landing (shipped except the hero slot)
 - Pluggable hero-visual slot (default products to a lighter static visual
   than the three.js scene)
 
@@ -190,6 +192,8 @@ from them and contains no product facts:
 | Palette & dark mode | `config/theme.css` + `public/` assets |
 | Tiers & limits | `config/pricing.ts` |
 | Env / secrets | `.env.local` + Amplify secrets / console env |
+| Landing copy & section order | `config/landing.ts` |
+| Modules (products within the product) | `config/modules.ts` + `modules/<id>/` (see `docs/modules.md`) |
 | Domain models & seeds | `amplify/data/vertical.ts` (+ `streamEventSources` in `backend.ts`) |
 
 ## Open decisions

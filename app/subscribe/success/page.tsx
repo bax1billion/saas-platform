@@ -43,8 +43,8 @@ function SuccessContent() {
           your dashboard shortly.
         </p>
         <a
-          href="/"
-          className="mt-6 inline-block rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
+          href="/dashboard"
+          className="mt-6 inline-block rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
         >
           Go to Dashboard
         </a>

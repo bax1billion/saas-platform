@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import Navbar from "@/app/components/Navbar";
 import Footer from "@/app/components/Footer";
@@ -62,12 +63,12 @@ export default async function ModulePage({
           }}
         />
         <div className="relative mx-auto max-w-6xl px-6 py-20 sm:py-28">
-          <a
+          <Link
             href="/#modules"
             className="text-sm font-medium text-brand-dark-foreground/60 transition-colors hover:text-brand-dark-foreground"
           >
             &larr; All modules
-          </a>
+          </Link>
           <div className="mt-6 flex items-center gap-4">
             <ModuleIcon module={m} size="lg" />
             <span className="rounded-full border border-brand-dark-foreground/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-brand-dark-foreground/80">
@@ -93,12 +94,12 @@ export default async function ModulePage({
             >
               {comingSoon ? "Notify me when it ships" : `Get ${m.name}`}
             </EarlyAccessButton>
-            <a
+            <Link
               href="/#pricing"
               className="inline-flex items-center justify-center rounded-lg border border-brand-dark-foreground/30 px-6 py-3 text-base font-semibold text-brand-dark-foreground transition-colors hover:border-brand-dark-foreground/60 hover:bg-brand-dark-foreground/10"
             >
               See pricing
-            </a>
+            </Link>
           </div>
         </div>
       </section>

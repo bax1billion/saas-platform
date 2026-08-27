@@ -37,7 +37,9 @@ type AuthContextType = {
   openAuthModal: (view?: AuthView) => void;
   closeAuthModal: () => void;
   setAuthView: (view: AuthView) => void;
-  refreshUser: () => Promise<void>;
+  /** Re-read the session; `forceRefresh` fetches new tokens (e.g. after a
+   *  server-side group change) instead of using cached ones. */
+  refreshUser: (opts?: { forceRefresh?: boolean }) => Promise<void>;
   handleSignOut: () => Promise<void>;
 };
 
@@ -64,11 +66,13 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [authView, setAuthView] = useState<AuthView>("signIn");
 
-  const refreshUser = useCallback(async () => {
+  const refreshUser = useCallback(async (opts?: { forceRefresh?: boolean }) => {
     try {
       const currentUser = await getCurrentUser();
       const attributes = await fetchUserAttributes();
-      const session = await fetchAuthSession();
+      const session = await fetchAuthSession({
+        forceRefresh: opts?.forceRefresh ?? false,
+      });
       const groups =
         (session.tokens?.idToken?.payload["cognito:groups"] as string[]) ?? [];
 

@@ -71,6 +71,13 @@ export default function Navbar() {
                     {user?.email}
                   </p>
                   <div className="my-2 border-t border-foreground/10" />
+                  <a
+                    href="/dashboard"
+                    className="block w-full text-left text-sm font-medium text-foreground transition-colors hover:text-primary"
+                  >
+                    Open app
+                  </a>
+                  <div className="my-2 border-t border-foreground/10" />
                   <button
                     onClick={async () => {
                       setIsDropdownOpen(false);

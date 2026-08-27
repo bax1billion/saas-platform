@@ -9,6 +9,7 @@ import { newsletterSubscriberTriggerFunction } from './functions/newsletter-subs
 import { sesWebhookHandlerFunction } from './functions/ses-webhook-handler/resource';
 import { stripeWebhookHandlerFunction } from './functions/stripe-webhook-handler/resource';
 import { createCheckoutSessionFunction } from './functions/create-checkout-session/resource';
+import { createOrganizationFunction } from './functions/create-organization/resource';
 import { postConfirmation } from './auth/post-confirmation/resource';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
@@ -30,6 +31,7 @@ const backend = defineBackend({
   sesWebhookHandlerFunction,
   stripeWebhookHandlerFunction,
   createCheckoutSessionFunction,
+  createOrganizationFunction,
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -145,6 +147,7 @@ const allTriggerFunctions = [
   backend.sesWebhookHandlerFunction,
   backend.stripeWebhookHandlerFunction,
   backend.createCheckoutSessionFunction,
+  backend.createOrganizationFunction,
 ];
 
 const graphqlEndpoint = `https://${backend.data.resources.graphqlApi.apiId}.appsync-api.${backend.stack.region}.amazonaws.com/graphql`;
@@ -168,6 +171,25 @@ for (const fn of allTriggerFunctions) {
 (backend.createCheckoutSessionFunction.resources.lambda as lambda.Function).addEnvironment(
   'APP_URL',
   process.env.APP_URL ?? 'http://localhost:3000'
+);
+
+// Onboarding handler elevates the org creator to Admin. The data stack
+// already depends on auth (user-pool auth mode), so referencing the pool
+// id here adds no new edge to the stack graph; the IAM grant stays a
+// wildcard for the same reason as #7.
+const createOrgLambda = backend.createOrganizationFunction.resources
+  .lambda as lambda.Function;
+createOrgLambda.addEnvironment(
+  'USER_POOL_ID',
+  backend.auth.resources.userPool.userPoolId
+);
+createOrgLambda.addToRolePolicy(
+  new iam.PolicyStatement({
+    actions: ['cognito-idp:AdminAddUserToGroup'],
+    resources: [
+      `arn:aws:cognito-idp:${backend.stack.region}:${backend.stack.account}:userpool/*`,
+    ],
+  })
 );
 
 // ═══════════════════════════════════════════════════════════════════

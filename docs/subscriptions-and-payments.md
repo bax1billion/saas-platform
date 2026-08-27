@@ -86,6 +86,16 @@ The foundation rows below apply to every product built on the platform; each ver
 
 Positioning copy is per-product and lives in the config layer (`config/pricing.ts`); the lines above are the pattern.
 
+### Add-on modules
+
+Tiers gate scale; **modules** gate which products an org has bought. A
+module is either `included` (every active subscription has it) or an `addon`
+— a second Stripe Price on the same subscription whose Product carries
+metadata `module=<id>`. `createCheckoutSession` accepts `modules[]`; the
+webhook mirrors the subscription's line items into `OrgSubscription.modules`;
+`resolveEntitledModules()` turns that (plus `Organization.settings.modules`
+overrides) into the entitled set. Full pattern: `docs/modules.md`.
+
 ### Tier Enforcement
 
 Tier limits are checked at two levels:

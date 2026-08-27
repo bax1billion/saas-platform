@@ -45,7 +45,8 @@ Set via `npx ampx sandbox secret set <NAME>` (see `.env.local` for the frontend 
 | `app/` | Next.js App Router — marketing site, blog, subscribe flow |
 | `amplify/` | Amplify Gen 2 backend: auth, data schema, storage, 12 functions, custom CDK wiring (`backend.ts`) |
 | `components/ui/` | shadcn/ui primitives |
-| `config/` | (Phase 1) the white-label switchboard: site identity, theme, pricing |
+| `config/` | the white-label switchboard: site identity, theme, pricing, landing copy, module registry |
+| `modules/` | one directory per module (product within the product) — see `docs/modules.md` |
 | `content/blog/` | MDX blog posts |
 | `docs/` | Architecture and design docs; `docs/playbooks/` holds reusable launch playbooks (brand, landing page, MVP, compliance readiness) |
 | `lib/` | Shared utilities |
@@ -57,4 +58,5 @@ Set via `npx ampx sandbox secret set <NAME>` (see `.env.local` for the frontend 
 - [`docs/architecture.md`](docs/architecture.md) — system architecture
 - [`docs/core-data-model.md`](docs/core-data-model.md) — foundation data model and schema conventions
 - [`docs/subscriptions-and-payments.md`](docs/subscriptions-and-payments.md) — billing + entitlements design
+- [`docs/modules.md`](docs/modules.md) — the module pattern: registry, app shell, entitlements, add-on billing
 - [`CDK_WIRING_DEPLOY.md`](CDK_WIRING_DEPLOY.md) — how the custom CDK wiring avoids Amplify circular-dependency pitfalls

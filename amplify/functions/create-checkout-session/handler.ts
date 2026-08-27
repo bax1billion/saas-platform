@@ -1,9 +1,6 @@
 import type { Schema } from '../../data/resource';
 import Stripe from 'stripe';
-import { SignatureV4 } from '@aws-sdk/signature-v4';
-import { Sha256 } from '@aws-crypto/sha256-js';
-import { HttpRequest } from '@aws-sdk/protocol-http';
-import { defaultProvider } from '@aws-sdk/credential-provider-node';
+import { graphql } from '../../shared/graphql';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -13,62 +10,45 @@ const PRICE_MAP: Record<string, string | undefined> = {
   SCALE: process.env.STRIPE_PRICE_SCALE,
 };
 
-const GRAPHQL_ENDPOINT = process.env.GRAPHQL_ENDPOINT!;
+/** module id → env var name holding its Stripe Price ID (see resource.ts). */
+const MODULE_PRICE_ENV: Record<string, string> = JSON.parse(
+  process.env.MODULE_PRICE_ENV || '{}'
+);
+
 const APP_URL = process.env.APP_URL || 'http://localhost:3000';
 
-// ─── AppSync GraphQL helper ────────────────────────────────────────
-
-const endpoint = new URL(GRAPHQL_ENDPOINT);
-
-const signer = new SignatureV4({
-  credentials: defaultProvider(),
-  region: process.env.AWS_REGION!,
-  service: 'appsync',
-  sha256: Sha256,
-});
-
-async function graphql<T = any>(
-  query: string,
-  variables?: Record<string, unknown>,
-): Promise<T> {
-  const body = JSON.stringify({ query, variables });
-
-  const request = new HttpRequest({
-    method: 'POST',
-    hostname: endpoint.hostname,
-    path: endpoint.pathname,
-    headers: {
-      'Content-Type': 'application/json',
-      host: endpoint.hostname,
-    },
-    body,
-  });
-
-  const signed = await signer.sign(request);
-
-  const response = await fetch(GRAPHQL_ENDPOINT, {
-    method: 'POST',
-    headers: signed.headers,
-    body,
-  });
-
-  const json = await response.json();
-  if (json.errors?.length) {
-    throw new Error(json.errors[0].message);
+function modulePriceId(moduleId: string): string {
+  const envName = MODULE_PRICE_ENV[moduleId];
+  const priceId = envName ? process.env[envName] : undefined;
+  if (!priceId) {
+    throw new Error(
+      `Module "${moduleId}" is not purchasable: no price configured.`
+    );
   }
-  return json.data;
+  return priceId;
 }
-
-// ─── Handler ───────────────────────────────────────────────────────
 
 export const handler: Schema['createCheckoutSession']['functionHandler'] = async (event) => {
   const { tier, orgId } = event.arguments;
+  const moduleIds = (event.arguments.modules ?? []).filter(
+    (m): m is string => typeof m === 'string' && m.length > 0
+  );
 
   // Validate tier and get Stripe Price ID
   const priceId = PRICE_MAP[tier];
   if (!priceId) {
     throw new Error(`Invalid tier: ${tier}. No price configured.`);
   }
+
+  // Add-on modules become extra line items on the same subscription. The
+  // webhook mirrors them back via each Product's `module=<id>` metadata.
+  const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = [
+    { price: priceId, quantity: 1 },
+    ...[...new Set(moduleIds)].map((id) => ({
+      price: modulePriceId(id),
+      quantity: 1,
+    })),
+  ];
 
   // Query Organization to get stripeCustomerId
   const orgData = await graphql<{ getOrganization: { id: string; stripeCustomerId: string | null; name: string } }>(
@@ -114,9 +94,9 @@ export const handler: Schema['createCheckoutSession']['functionHandler'] = async
     ui_mode: 'embedded',
     mode: 'subscription',
     customer: stripeCustomerId,
-    line_items: [{ price: priceId, quantity: 1 }],
+    line_items,
     return_url: `${APP_URL}/subscribe/success?session_id={CHECKOUT_SESSION_ID}`,
-    metadata: { orgId, tier },
+    metadata: { orgId, tier, modules: moduleIds.join(',') },
   });
 
   return { clientSecret: session.client_secret! };

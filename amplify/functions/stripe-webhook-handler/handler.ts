@@ -20,6 +20,11 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
   //   checkout.session.completed → create OrgSubscription, set Organization.stripeCustomerId
   //   customer.subscription.created → create/update OrgSubscription
   //   customer.subscription.updated → update OrgSubscription (status, tier, period dates)
+  //   For every subscription event, mirror line items onto the record:
+  //     tier    ← the item whose Product metadata has `tier=<CORE|GROWTH|SCALE>`
+  //     modules ← [Product metadata `module=<id>`] for every other item
+  //   (docs/modules.md — never trust the Checkout metadata for this; the
+  //    subscription's current items are the truth after any later change)
   //   customer.subscription.deleted → update OrgSubscription: status → CANCELED, endedAt
   //   invoice.payment_succeeded → update OrgSubscription: latestInvoiceStatus → paid
   //   invoice.payment_failed → update OrgSubscription: status → PAST_DUE
