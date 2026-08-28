@@ -303,8 +303,9 @@ access; all tenant data hangs off this model.
 | `stripeCustomerId` | String | no | Stripe Customer ID (`cus_...`), set on first checkout; 1:1 with the org |
 | `isActive` | Boolean | default `true` | Deactivation flag (never hard-delete) |
 
-**Relationships:** `hasMany` to every org-scoped model (foundation: `users`,
-`sites`, `subscriptions`; plus one per vertical model).
+**Relationships:** `hasMany` to the foundation's org-scoped models (`users`,
+`sites`, `subscriptions`). Vertical/module models scope by `orgId` + GSI
+without a relationship (see §6).
 
 **Indexes:**
 
@@ -552,11 +553,13 @@ webhook handler uses it to resolve the org), and returns the session's
 A new product's domain models plug into the foundation by following the
 conventions above:
 
-- **Tenancy:** every domain model gets `orgId: a.id().required()` +
-  `belongsTo('Organization', 'orgId')` + a `hasMany` back-reference on
-  Organization, and an `orgId`-partitioned GSI as its primary list index. Add
-  optional `siteId` scoping (with a `bySite` GSI) if the model is
-  location-specific.
+- **Tenancy:** every domain model gets `orgId: a.id().required()` and an
+  `orgId`-partitioned GSI as its primary list index. Don't add
+  `belongsTo('Organization', 'orgId')` unless you also add the matching
+  `hasMany` on Organization in `resource.ts` — Amplify requires both sides
+  and fails synth otherwise; vertical/module models should leave the
+  foundation model alone and rely on the GSI. Add optional `siteId` scoping
+  (with a `bySite` GSI) if the model is location-specific.
 - **Indexes:** one GSI per access pattern; `queryField` named
   `<models>By<Dimension>`; add a required `sortDate` for chronological lists;
   partition-only GSIs for unique lookups; dashboard filters as

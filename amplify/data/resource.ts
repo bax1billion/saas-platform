@@ -332,19 +332,20 @@ const schema = a
       .authorization((allow) => [allow.authenticated()])
       .handler(a.handler.function(createCheckoutSessionFunction)),
 
-    CreateOrganizationResponse: a.customType({
+    ProvisionOrganizationResponse: a.customType({
       orgId: a.id().required(),
       slug: a.string().required(),
     }),
 
     /** Onboarding: create the caller's org, link their User, elevate them
-     *  to Admin. Idempotent per user. */
-    createOrganization: a
+     *  to Admin. Idempotent per user. (Named to avoid the auto-generated
+     *  createOrganization model mutation.) */
+    provisionOrganization: a
       .mutation()
       .arguments({
         name: a.string().required(),
       })
-      .returns(a.ref('CreateOrganizationResponse'))
+      .returns(a.ref('ProvisionOrganizationResponse'))
       .authorization((allow) => [allow.authenticated()])
       .handler(a.handler.function(createOrganizationFunction)),
 

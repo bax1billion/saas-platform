@@ -29,7 +29,7 @@ function OnboardingForm() {
     setError(null);
     try {
       const { data, errors } =
-        await getDataClient().mutations.createOrganization({ name });
+        await getDataClient().mutations.provisionOrganization({ name });
       if (errors?.length || !data?.orgId) {
         throw new Error(errors?.[0]?.message ?? "Could not create organization");
       }

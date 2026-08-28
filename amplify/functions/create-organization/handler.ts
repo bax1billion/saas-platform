@@ -45,7 +45,7 @@ async function findFreeSlug(base: string): Promise<string> {
  * even though the caller is still in the default Viewer group. Idempotent
  * per user: a user who already belongs to an org gets that org back.
  */
-export const handler: Schema['createOrganization']['functionHandler'] = async (
+export const handler: Schema['provisionOrganization']['functionHandler'] = async (
   event
 ) => {
   const name = event.arguments.name?.trim();
@@ -60,7 +60,7 @@ export const handler: Schema['createOrganization']['functionHandler'] = async (
   const cognitoSub = identity?.sub;
   const username = identity?.username;
   if (!cognitoSub || !username) {
-    throw new Error('createOrganization requires a signed-in user.');
+    throw new Error('provisionOrganization requires a signed-in user.');
   }
 
   // 1. Resolve the caller's User record
@@ -122,6 +122,6 @@ export const handler: Schema['createOrganization']['functionHandler'] = async (
     })
   );
 
-  console.log('CreateOrganization: provisioned', { orgId: org.id, slug });
+  console.log('ProvisionOrganization: provisioned', { orgId: org.id, slug });
   return { orgId: org.id, slug: org.slug };
 };
