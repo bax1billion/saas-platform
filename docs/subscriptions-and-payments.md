@@ -372,11 +372,38 @@ Stripe is the source of truth for subscription state. The OrgSubscription record
 
 ### Webhook Events
 
-The webhook handler processes these Stripe events to keep OrgSubscription in sync:
-- `checkout.session.completed` — create OrgSubscription
-- `customer.subscription.updated` — update status/tier
-- `customer.subscription.deleted` — mark as CANCELED
-- `invoice.payment_failed` — update status to PAST_DUE or UNPAID
+Configure exactly these events on the endpoint (one endpoint per environment,
+pointed at that environment's `StripeWebhookUrl` output):
+
+| Event | Effect |
+|---|---|
+| `checkout.session.completed` | First mirror of the subscription; sets `Organization.stripeCustomerId` |
+| `customer.subscription.created` / `updated` / `deleted` | Re-mirror: status, tier, period, cancel flags, **add-on `modules[]`** |
+| `invoice.paid` (or `invoice.payment_succeeded`) / `invoice.payment_failed` | Re-mirror + `latestInvoice*` fields |
+
+### Handler design (`amplify/functions/stripe-webhook-handler/handler.ts`)
+
+- **Transport:** Lambda Function URL (backend.ts §5). Signature verified with
+  `stripe.webhooks.constructEvent` against the raw body (base64-decoded when
+  the Function URL flags it). `processEvent(Stripe.Event)` is transport-free
+  so an EventBridge target could reuse it.
+- **Idempotent:** every delivery is recorded in `StripeWebhookEvent` before
+  processing; `PROCESSED`/`SKIPPED` events return 200 immediately; `FAILED`
+  ones are retried on Stripe's next delivery (non-2xx response).
+- **Convergent:** every handled event ends in `syncSubscription()`, which
+  re-reads the subscription from Stripe with `items.data.price.product`
+  expanded and upserts the mirror. Out-of-order or duplicate deliveries
+  therefore cannot leave stale state.
+- **Tier and modules from Product metadata** (never from price-ID maps):
+  the line item whose Product has `tier=CORE|GROWTH|SCALE` sets `tier` /
+  `stripePriceId`; items whose Product has `module=<id>` populate
+  `modules[]`. A subscription with no tier item is a configuration error and
+  fails loudly (`FAILED` + 500).
+- **Org resolution order:** existing mirror → `organizationsByStripeCustomerId`
+  → Checkout/subscription `metadata.orgId`. Unresolvable → `SKIPPED` (200).
+- **API shapes (Stripe "basil" versions):** `current_period_*` is read from
+  the tier subscription item; the invoice's subscription is
+  `invoice.parent.subscription_details.subscription`.
 
 ### Data Model
 
