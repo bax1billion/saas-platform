@@ -85,7 +85,7 @@ always apply to upstream `main` without conflicts.
 - [ ] New colors are semantic tokens — no hex literals outside `config/theme.css`
 - [ ] Vertical-specific parts stayed behind the seams (`vertical.ts`,
       `streamEventSources`, `config/`)
-- [ ] `npx tsc --noEmit` and `npx next build` pass
+- [ ] `npx tsc --noEmit`, `npm run check:backend` (local CDK synth) and `npx next build` pass
 - [ ] Docs updated if the contribution adds a capability or convention
 
 ### What makes a good upstream contribution

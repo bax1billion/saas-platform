@@ -27,7 +27,7 @@ between this foundation and product repos, see [`CONTRIBUTING.md`](../CONTRIBUTI
   from the module registry, `EntitlementsProvider` (org, tier, status,
   entitled modules), `ModuleShell` per-module gate with upsell state,
   dashboard, org + billing settings pages
-- Onboarding: `/onboarding` → `createOrganization` mutation (Lambda creates
+- Onboarding: `/onboarding` → `provisionOrganization` mutation (Lambda creates
   the org, links the User, elevates the creator to Admin)
 
 **Wired but stubbed** — the Lambdas exist and are connected, their bodies are
