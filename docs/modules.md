@@ -17,24 +17,25 @@ config/modules.ts                 ← registry entry (ModuleDef)   [downstream]
 config/theme.css                  ← --module-<id> accent token    [downstream]
 modules/<id>/
   module.ts                       ← the ModuleDef (imported by the registry)
-  schema.ts                       ← Amplify models/enums + EventLog names + org seeds
-  seed.ts                         ← optional: sample data loader for demos/dev
   components/                     ← the module's UI (client components)
-  lib/                            ← module-local helpers, types, queries
+  lib/                            ← module-local helpers, types, queries, seed data
+amplify/data/modules/<id>.ts      ← Amplify models/enums + EventLog names + seeds + price secret
 app/(app)/<id>/
   layout.tsx                      ← <ModuleShell moduleId="<id>"> (entitlement gate + module nav)
   page.tsx                        ← redirects to the module's first nav item
   <view>/page.tsx                 ← thin wrappers that render modules/<id>/components/*
-amplify/data/vertical.ts          ← composes every module's schema.ts   [downstream]
+amplify/data/vertical.ts          ← composes every module's schema file  [downstream]
 amplify/backend.ts                ← streamEventSources entries for the module's tables
 ```
 
 Rules that keep the seams clean:
 
 - `module.ts` is imported by the **client bundle** (via `config/modules.ts`).
-  It must never import `schema.ts` or anything from `@aws-amplify/backend`.
-- `schema.ts` is imported by the **backend** (via `amplify/data/vertical.ts`)
-  using relative paths (the Amplify tsconfig has no `@/` alias).
+  It must never import the schema file or anything from `@aws-amplify/backend`.
+- The schema file lives **inside `amplify/`** (`amplify/data/modules/<id>.ts`)
+  and is composed by `amplify/data/vertical.ts` with a relative import.
+  `ampx` loads the backend as ES modules; a schema placed under `modules/`
+  resolves as CommonJS and fails with "does not provide an export named …".
 - Routes under `app/(app)/<id>/` stay thin. All real UI lives in
   `modules/<id>/components/` so a module can be lifted into another product
   by copying one directory and adding one registry line.
@@ -118,7 +119,7 @@ Dashboard is reflected without a deploy.
 
 Follow `docs/core-data-model.md` conventions. Prefix model names with the
 module name to keep the global schema namespace readable
-(`Investigation`, `InvestigationMedia`, …). Each module's `schema.ts` exports:
+(`Investigation`, `InvestigationMedia`, …). Each `amplify/data/modules/<id>.ts` exports:
 
 ```ts
 export const investigationsModels = { /* a.enum / a.model entries */ };
@@ -135,8 +136,8 @@ and `amplify/data/vertical.ts` spreads them into the vertical exports.
 1. `modules/<id>/module.ts` — write the ModuleDef; add the accent token to
    `config/theme.css` (light and dark).
 2. Register it in `config/modules.ts`.
-3. `modules/<id>/schema.ts` — models, enums, EventLog names, seeds; compose
-   in `amplify/data/vertical.ts`; add tables to `streamEventSources`.
+3. `amplify/data/modules/<id>.ts` — models, enums, EventLog names, seeds,
+   stream tables, price secret; compose in `amplify/data/vertical.ts`.
 4. `app/(app)/<id>/layout.tsx` with `<ModuleShell moduleId="<id>">`, a
    redirecting `page.tsx`, and one thin `page.tsx` per nav item.
 5. Build the UI in `modules/<id>/components/` using `components/ui/*`.
