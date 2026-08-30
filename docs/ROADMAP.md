@@ -39,8 +39,12 @@ TODOs: `event-logger`, `organization-trigger` seed execution,
 `s3-file-trigger` validation, `newsletter-subscriber-trigger`,
 `ses-webhook-handler` DB updates.
 
-**Missing entirely** — backend entitlement enforcement (scale limits on
-create paths), customer portal, member invites, legal pages.
+- Entitlement enforcement (backend): APPSYNC_JS pipeline steps on every
+  gated mutation — active subscription, plus the module for module tables
+  (`amplify/data/entitlements/`)
+
+**Missing entirely** — scale-limit enforcement (maxUsers/maxSites/module
+countables on create paths), customer portal, member invites, legal pages.
 
 ## First deploy: AWS account bootstrap
 
@@ -150,14 +154,13 @@ Ordered by dependency; each item leaves the repo deployable.
 
 ### 1. Billing completion & entitlements (largest item)
 Implements `docs/subscriptions-and-payments.md`:
-- Entitlement enforcement from `TIER_LIMITS` in `config/pricing.ts` —
-  gate on scale (users/sites/vertical countables), never capability;
-  ACTIVE/TRIALING/PAST_DUE all grant access
+- Scale-limit enforcement from `TIER_LIMITS` in `config/pricing.ts`
+  (users/sites/vertical countables) as a fourth entitlement pipeline step
+  with a count query per create path
 - `SubscriptionProvider` client context (`org`, `tier`, `status`,
   `isActive`, `needsOnboarding`, `needsSubscription`)
-- Backend enforcement on create paths; customer-portal session mutation +
-  billing page; server-side verification on `/subscribe/success`; PAST_DUE
-  banner
+- Customer-portal session mutation + billing page actions; server-side
+  verification on `/subscribe/success`
 
 ### 2. App shell & protected routes (shell + onboarding shipped)
 - Remaining: member invites (`/settings` roster is read-only), org switcher

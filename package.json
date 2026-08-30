@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "check:backend": "node --import tsx scripts/check-backend.mjs"
+    "check:backend": "node --import tsx scripts/check-backend.mjs",
+    "check:entitlements": "node scripts/check-entitlements.mjs"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",

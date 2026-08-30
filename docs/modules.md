@@ -81,9 +81,12 @@ strip, the app-shell sidebar, and entitlement checks.
 
 ## Entitlements
 
-`resolveEntitledModules()` in `lib/modules/index.ts` is the single decision
-point, and `EntitlementsContext` exposes the result to the client as
-`hasModule(id)`.
+`resolveEntitledModules()` in `lib/modules/index.ts` is the decision on the
+client (`EntitlementsContext` → `hasModule(id)`), and
+`amplify/data/entitlements/` applies the same rules on the server: every
+`create|update|delete` on a model listed in `verticalModuleTables`
+(`amplify/data/vertical.ts`) is rejected with `ModuleRequired` unless the org
+holds the module. Add each new module's models to that map.
 
 | Source | Meaning |
 |---|---|
@@ -137,7 +140,8 @@ and `amplify/data/vertical.ts` spreads them into the vertical exports.
    `config/theme.css` (light and dark).
 2. Register it in `config/modules.ts`.
 3. `amplify/data/modules/<id>.ts` — models, enums, EventLog names, seeds,
-   stream tables, price secret; compose in `amplify/data/vertical.ts`.
+   stream tables, price secret; compose in `amplify/data/vertical.ts`
+   (including `verticalModuleTables` so the backend gates its mutations).
 4. `app/(app)/<id>/layout.tsx` with `<ModuleShell moduleId="<id>">`, a
    redirecting `page.tsx`, and one thin `page.tsx` per nav item.
 5. Build the UI in `modules/<id>/components/` using `components/ui/*`.
