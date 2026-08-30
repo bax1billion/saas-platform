@@ -67,6 +67,9 @@ export const verticalEventActions: string[] = [];
  */
 export const verticalOrgSeeds: Array<Record<string, unknown>> = [];
 
+/** Vertical tables streamed into the audit trail (amplify/backend.ts). */
+export const verticalStreamTables: string[] = [];
+
 /**
  * Add-on module billing: module id (config/modules.ts) → Amplify secret
  * name holding that module's Stripe Price ID. Convention:

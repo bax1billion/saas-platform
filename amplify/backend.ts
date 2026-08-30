@@ -11,6 +11,7 @@ import { stripeWebhookHandlerFunction } from './functions/stripe-webhook-handler
 import { createCheckoutSessionFunction } from './functions/create-checkout-session/resource';
 import { createOrganizationFunction } from './functions/create-organization/resource';
 import { postConfirmation } from './auth/post-confirmation/resource';
+import { verticalStreamTables } from './data/vertical';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import { StreamViewType } from 'aws-cdk-lib/aws-dynamodb';
@@ -57,7 +58,13 @@ const streamEventSources: Record<string, lambda.IFunction[]> = {
     backend.eventLoggerFunction.resources.lambda,
     backend.newsletterSubscriberTriggerFunction.resources.lambda,
   ],
-  // Vertical tables: 'MyModel': [backend.eventLoggerFunction.resources.lambda, ...],
+  // Vertical tables (amplify/data/vertical.ts) → audit trail
+  ...Object.fromEntries(
+    verticalStreamTables.map((t) => [
+      t,
+      [backend.eventLoggerFunction.resources.lambda],
+    ])
+  ),
 };
 
 for (const tableName of Object.keys(streamEventSources)) {
