@@ -6,12 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-<<<<<<< HEAD
-    "lint": "eslint"
-=======
     "lint": "eslint",
     "check:backend": "node --import tsx scripts/check-backend.mjs"
->>>>>>> faaf8a7 (foundation: rename onboarding mutation to provisionOrganization; local CDK synth check)
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
