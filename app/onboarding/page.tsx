@@ -81,7 +81,7 @@ function OnboardingForm() {
             required
             minLength={2}
             autoFocus
-            placeholder="e.g. Maplewood Fire Department"
+            placeholder="Your organization's name"
             className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2.5 text-foreground outline-none ring-ring/50 focus:ring-[3px]"
           />
         </div>

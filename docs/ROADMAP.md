@@ -30,9 +30,13 @@ between this foundation and product repos, see [`CONTRIBUTING.md`](../CONTRIBUTI
 - Onboarding: `/onboarding` → `provisionOrganization` mutation (Lambda creates
   the org, links the User, elevates the creator to Admin)
 
+- Billing (back half): `stripe-webhook-handler` — signature-verified,
+  idempotent via `StripeWebhookEvent`, mirrors tier/status/period/add-on
+  modules into `OrgSubscription` from Product metadata
+
 **Wired but stubbed** — the Lambdas exist and are connected, their bodies are
-TODOs: `stripe-webhook-handler`, `event-logger`, `organization-trigger` seed
-execution, `s3-file-trigger` validation, `newsletter-subscriber-trigger`,
+TODOs: `event-logger`, `organization-trigger` seed execution,
+`s3-file-trigger` validation, `newsletter-subscriber-trigger`,
 `ses-webhook-handler` DB updates.
 
 **Missing entirely** — backend entitlement enforcement (scale limits on
@@ -109,9 +113,15 @@ build). Per app/branch, configure in the console:
 ### Post-deploy steps (per environment — this is the real ordering)
 
 1. Read the `StripeWebhookUrl` CloudFormation output → create the webhook
-   endpoint in the Stripe dashboard (that mode's dashboard) → copy the
+   endpoint in the Stripe dashboard (that mode's dashboard) subscribed to
+   exactly the six events in `docs/subscriptions-and-payments.md` →
+   *Webhook Events* (`checkout.session.completed`,
+   `customer.subscription.created|updated|deleted`, `invoice.paid` or
+   `invoice.payment_succeeded`, `invoice.payment_failed`) → copy the
    signing secret → set `STRIPE_WEBHOOK_SECRET` → redeploy. Each
    environment has its own Function URL, hence its own signing secret.
+   Plan Products need metadata `tier=CORE|GROWTH|SCALE`; add-on Products
+   need `module=<id>` — the handler derives everything from those.
 2. Read the `SESNotificationTopicArn` output → set it as the SES
    bounce/complaint notification destination.
 3. SES per account: verify the sending domain and request production access
@@ -140,9 +150,6 @@ Ordered by dependency; each item leaves the repo deployable.
 
 ### 1. Billing completion & entitlements (largest item)
 Implements `docs/subscriptions-and-payments.md`:
-- Stripe webhook handler: signature verification, idempotency via the
-  `StripeWebhookEvent` GSI, handlers for checkout/subscription/invoice
-  events → upsert `OrgSubscription`
 - Entitlement enforcement from `TIER_LIMITS` in `config/pricing.ts` —
   gate on scale (users/sites/vertical countables), never capability;
   ACTIVE/TRIALING/PAST_DUE all grant access
