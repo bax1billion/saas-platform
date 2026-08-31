@@ -19,6 +19,7 @@ import { useAuth } from "./AuthContext";
 import { useEntitlements } from "./EntitlementsContext";
 import ModuleIcon from "./ModuleIcon";
 import PastDueBanner from "./PastDueBanner";
+import SubscriptionRequiredBanner from "./SubscriptionRequiredBanner";
 import { Toaster } from "@/components/ui/sonner";
 
 type NavLinkProps = {
@@ -64,7 +65,7 @@ function SectionLabel({ children }: { children: ReactNode }) {
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { user, handleSignOut } = useAuth();
-  const { org, hasModule, status } = useEntitlements();
+  const { org, hasModule, status, needsSubscription } = useEntitlements();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const currentModule = getModuleByPath(pathname);
@@ -218,6 +219,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </header>
 
         {status === "PAST_DUE" && <PastDueBanner />}
+        {needsSubscription && <SubscriptionRequiredBanner />}
 
         <main className="flex-1">{children}</main>
       </div>

@@ -82,3 +82,9 @@ export const verticalStreamTables: string[] = [];
  *   };
  */
 export const verticalModulePriceSecrets: Record<string, string> = {};
+
+/**
+ * Module id → the models it owns. Mutations on these models require an
+ * active subscription AND the module (amplify/data/entitlements).
+ */
+export const verticalModuleTables: Record<string, string[]> = {};

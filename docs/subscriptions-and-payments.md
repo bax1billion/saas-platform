@@ -337,20 +337,38 @@ Uses **Stripe Embedded Checkout** so the entire payment flow stays on-site with 
 
 **Dependencies:** `@stripe/stripe-js`, `@stripe/react-stripe-js` (frontend), `stripe` (Lambda resolver)
 
-### 6. Backend Enforcement — AppSync Pipeline Resolver
+### 6. Backend Enforcement — AppSync pipeline steps (implemented)
 
-For mutation operations on org-scoped models (foundation and vertical alike), add a pipeline resolver step that:
-1. Extracts the caller's cognitoSub from the AppSync identity context
-2. Looks up User → orgId → OrgSubscription
-3. Checks if status is ACTIVE, TRIALING, or PAST_DUE
-4. If not → return an unauthorized error
-5. If yes → continue to the main resolver
+**Files:** `amplify/data/entitlements/{index.ts,user.js,org.js,subscription.js}`, wired in `amplify/backend.ts` §3b.
 
-Can be implemented as:
-- A custom JS resolver function in `amplify/data/` that runs before mutations
-- Or a Lambda function called as the first step in a pipeline resolver
+Three `APPSYNC_JS` functions are inserted into the pipeline of every gated
+model mutation, after Amplify's generated auth steps and before its data
+resolver — so Cognito group rules still run first, and nothing about the
+client changes:
 
-**Scope:** Only enforce on mutation operations. Read operations (queries) are always allowed.
+| Step | Data source | Does |
+|---|---|---|
+| `EntitlementUserFn` | `UserTable` (GSI `usersByCognitoSub`) | Resolves the caller's `orgId`; IAM callers (Lambdas) have no Cognito claims and **bypass** |
+| `EntitlementOrgFn` | `OrganizationTable` | Reads `settings.access === "comped"` and `settings.modules[]` overrides |
+| `EntitlementSubscriptionFn` | `OrgSubscriptionTable` (GSI `orgSubscriptionsByOrgIdAndSortDate`, latest) | Decides: active = status ∈ {ACTIVE, TRIALING, PAST_DUE} or comped; module fields also need the module id in `OrgSubscription.modules ∪ settings.modules` |
+
+Gated fields are `create|update|delete<Model>` for:
+- every model in `verticalModuleTables` (`amplify/data/vertical.ts`, module id → models) → `SubscriptionRequired` or `ModuleRequired`
+- `subscriptionTables` passed from `backend.ts` (foundation: `Site`) → `SubscriptionRequired`
+
+Not gated: all queries (read/export after lapse), `Organization`/`User`
+administration, `provisionOrganization` and `createCheckoutSession` (a new
+org must be able to subscribe). Errors surface as GraphQL errors with
+`errorType` `OnboardingRequired` / `SubscriptionRequired` / `ModuleRequired`.
+
+The decision logic mirrors the client's `resolveEntitledModules()` exactly;
+keep the two in step. `npm run check:backend` validates the wiring;
+`npm run check:entitlements` runs the resolver code against a decision
+table with a stubbed AppSync runtime.
+
+**Still open:** scale limits (`TIER_LIMITS.maxUsers/maxSites` and module
+countables) are not enforced server-side yet — that needs a count query per
+create path.
 
 ### 7. PAST_DUE Banner
 

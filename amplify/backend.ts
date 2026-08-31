@@ -11,7 +11,8 @@ import { stripeWebhookHandlerFunction } from './functions/stripe-webhook-handler
 import { createCheckoutSessionFunction } from './functions/create-checkout-session/resource';
 import { createOrganizationFunction } from './functions/create-organization/resource';
 import { postConfirmation } from './auth/post-confirmation/resource';
-import { verticalStreamTables } from './data/vertical';
+import { verticalStreamTables, verticalModuleTables } from './data/vertical';
+import { applyEntitlementEnforcement } from './data/entitlements/index';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import { StreamViewType } from 'aws-cdk-lib/aws-dynamodb';
@@ -197,6 +198,22 @@ createOrgLambda.addToRolePolicy(
       `arn:aws:cognito-idp:${backend.stack.region}:${backend.stack.account}:userpool/*`,
     ],
   })
+);
+
+// ═══════════════════════════════════════════════════════════════════
+// #3b Backend entitlement enforcement
+// APPSYNC_JS pipeline steps on every gated model mutation: the caller's
+// org must have an access-granting subscription (or be comped), and module
+// tables additionally require the module. Reads are never gated; IAM
+// callers (Lambdas) bypass. See amplify/data/entitlements/.
+// ═══════════════════════════════════════════════════════════════════
+
+const entitlements = applyEntitlementEnforcement(backend.data.resources, {
+  moduleTables: verticalModuleTables,
+  subscriptionTables: ['Site'],
+});
+console.log(
+  `Entitlement enforcement on ${entitlements.gatedFields.length} mutations`
 );
 
 // ═══════════════════════════════════════════════════════════════════
