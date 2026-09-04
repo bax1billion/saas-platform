@@ -105,15 +105,13 @@ export function createMediaCdn(stack: Stack, props: MediaCdnProps) {
 
   // ── Distribution ───────────────────────────────────────────────────
   const keyGroups: cloudfront.IKeyGroup[] = [];
+  let publicKey: cloudfront.PublicKey | undefined;
   if (props.publicKeyPem) {
+    publicKey = new cloudfront.PublicKey(stack, 'MediaPublicKey', {
+      encodedKey: props.publicKeyPem,
+    });
     keyGroups.push(
-      new cloudfront.KeyGroup(stack, 'MediaKeyGroup', {
-        items: [
-          new cloudfront.PublicKey(stack, 'MediaPublicKey', {
-            encodedKey: props.publicKeyPem,
-          }),
-        ],
-      })
+      new cloudfront.KeyGroup(stack, 'MediaKeyGroup', { items: [publicKey] })
     );
   }
 
@@ -128,9 +126,9 @@ export function createMediaCdn(stack: Stack, props: MediaCdnProps) {
       }),
       viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
       allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
-      // Variant is normalized INTO the path; query is dropped, so the
-      // cache key is the path alone — signed-URL auth params never
-      // fragment the cache (validation still happens on every request).
+      // Variant is normalized INTO the path and CACHING_OPTIMIZED keys on
+      // the path alone — signed-URL auth params (which the viewer function
+      // preserves) never fragment the cache.
       cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
       compress: true,
       functionAssociations: [
@@ -157,7 +155,16 @@ export function createMediaCdn(stack: Stack, props: MediaCdnProps) {
   });
   new CfnOutput(stack, 'MediaCdnMode', { value: mode });
 
-  return { distribution, transformedBucket, transformFn };
+  return {
+    distribution,
+    transformedBucket,
+    transformFn,
+    mode,
+    /** CloudFront domain for signed media URLs. */
+    domain: distribution.distributionDomainName,
+    /** Key-Pair-Id the URL signer must use ('' unless mode is signed). */
+    keyPairId: publicKey?.publicKeyId ?? '',
+  };
 }
 
 /**
@@ -208,7 +215,14 @@ function buildViewerFunctionCode(
     '  }',
     '  ops.sort();',
     "  request.uri = uri + '/' + (ops.length ? ops.join(',') : 'original');",
-    '  request.querystring = {};',
+    '  // Strip only the transform params. Signed-URL auth params',
+    '  // (Policy/Signature/Key-Pair-Id/Expires) are preserved so signature',
+    '  // validation succeeds regardless of when CloudFront applies it; the',
+    '  // cache policy keeps every query param out of the cache key.',
+    '  delete request.querystring.w;',
+    '  delete request.querystring.h;',
+    '  delete request.querystring.q;',
+    '  delete request.querystring.f;',
     '  return request;',
     '}',
     'function badRequest() {',
