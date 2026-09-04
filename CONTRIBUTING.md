@@ -85,7 +85,7 @@ always apply to upstream `main` without conflicts.
 - [ ] New colors are semantic tokens — no hex literals outside `config/theme.css`
 - [ ] Vertical-specific parts stayed behind the seams (`vertical.ts`,
       `streamEventSources`, `config/`)
-- [ ] `npx tsc --noEmit`, `npm run check:backend` (local CDK synth) and `npx next build` pass
+- [ ] `npm test`, `npx tsc --noEmit`, `npm run check:backend` (local CDK synth) and `npx next build` pass
 - [ ] Docs updated if the contribution adds a capability or convention
 
 ### What makes a good upstream contribution
@@ -93,7 +93,8 @@ always apply to upstream `main` without conflicts.
 Implemented-once-needed-twice infrastructure: entitlement enforcement
 helpers, webhook handling, app-shell components, onboarding flows, generic
 Lambda implementations for the stubbed triggers, dashboard primitives,
-playbook improvements, deploy/CI recipes. When in doubt, ask: *would the
+playbook improvements, deploy/CI recipes, unit tests for foundation logic
+(colocated `*.test.ts`, run by `npm test` and CI on every PR). When in doubt, ask: *would the
 next unrelated vertical use this unchanged?* If yes, upstream it.
 
 ## Keeping products up to date

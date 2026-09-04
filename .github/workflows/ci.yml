@@ -1,0 +1,43 @@
+# CI — unit tests, typecheck, and a full local CDK synth on every PR.
+#
+# No AWS credentials are used: amplify_outputs.json is stubbed (the
+# frontend imports it at module scope) and `check:backend` synthesizes the
+# backend entirely locally — it has caught schema/ESM/resolver errors that
+# tsc and the unit tests cannot.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Stub amplify_outputs.json
+        run: test -f amplify_outputs.json || echo '{}' > amplify_outputs.json
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Backend synth (local CDK assembly)
+        run: npm run check:backend

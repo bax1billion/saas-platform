@@ -43,14 +43,16 @@ const FORMAT_CONTENT_TYPE: Record<string, string> = {
   png: 'image/png',
 };
 
-function parseVariant(segment: string): Ops | null {
+/** Exported for unit tests. */
+export function parseVariant(segment: string): Ops | null {
   if (segment === 'original') return {};
   const ops: Ops = {};
   for (const part of segment.split(',')) {
     const [k, v] = part.split('=');
     if (k === 'w' || k === 'h' || k === 'q') {
       const n = Number(v);
-      if (!Number.isInteger(n) || n < 1 || n > 4096) return null;
+      const max = k === 'q' ? 100 : 4096;
+      if (!Number.isInteger(n) || n < 1 || n > max) return null;
       ops[k] = n;
     } else if (k === 'f') {
       if (!(v in FORMAT_CONTENT_TYPE)) return null;

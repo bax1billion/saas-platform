@@ -56,13 +56,16 @@ export interface EntitlementSources {
  *   or the org's settings override.
  * - `coming-soon` modules are never entitled.
  */
-export function resolveEntitledModules(src: EntitlementSources): Set<string> {
+export function resolveEntitledModules(
+  src: EntitlementSources,
+  moduleDefs: readonly ModuleDef[] = modules
+): Set<string> {
   const granted = new Set<string>([
     ...(src.subscriptionModules ?? []),
     ...(src.orgModules ?? []),
   ]);
   const entitled = new Set<string>();
-  for (const m of modules) {
+  for (const m of moduleDefs) {
     if (m.availability === "coming-soon") continue;
     if (m.availability === "included" && src.hasActiveSubscription) {
       entitled.add(m.id);

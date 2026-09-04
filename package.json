@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "check:backend": "node --import tsx scripts/check-backend.mjs",
-    "check:entitlements": "node scripts/check-entitlements.mjs"
+    "check:entitlements": "vitest run amplify/data/entitlements",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
@@ -48,7 +50,7 @@
     "@aws-sdk/signature-v4": "^3.370.0",
     "@tailwindcss/postcss": "^4",
     "@types/aws-lambda": "^8.10.160",
-    "@types/node": "^20",
+    "@types/node": "^22.20.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/three": "^0.183.1",
@@ -61,6 +63,7 @@
     "stripe": "^20.4.0",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.0"
   }
 }
