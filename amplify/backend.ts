@@ -12,6 +12,7 @@ import { createCheckoutSessionFunction } from './functions/create-checkout-sessi
 import { createOrganizationFunction } from './functions/create-organization/resource';
 import { postConfirmation } from './auth/post-confirmation/resource';
 import { verticalStreamTables, verticalModuleTables } from './data/vertical';
+import { createMediaCdn } from './custom/media-cdn/resource';
 import { applyEntitlementEnforcement } from './data/entitlements/index';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
@@ -304,6 +305,22 @@ const s3Notifications = new cr.AwsCustomResource(
 
 // Ensure Lambda Permission exists before S3 validates the notification
 s3Notifications.node.addDependency(s3InvokePermission);
+
+// ═══════════════════════════════════════════════════════════════════
+// #4b Media CDN (docs/image-delivery.md)
+// CloudFront + sharp Lambda + transformed-derivative bucket over the
+// storage bucket's media prefixes. Fail-closed: serves 403s until either
+// MEDIA_CDN_PUBLIC_KEY (signed URLs, P2) or MEDIA_CDN_ALLOW_OPEN=1
+// (sandbox testing only) is provided at synth.
+// ═══════════════════════════════════════════════════════════════════
+
+const mediaCdnStack = backend.createStack('media-cdn');
+createMediaCdn(mediaCdnStack, {
+  originalsBucket: backend.storage.resources.bucket,
+  allowedPrefixes: ['uploads/', 'logos/'],
+  allowOpen: process.env.MEDIA_CDN_ALLOW_OPEN === '1',
+  publicKeyPem: process.env.MEDIA_CDN_PUBLIC_KEY,
+});
 
 // ═══════════════════════════════════════════════════════════════════
 // #5 Stripe Function URL
