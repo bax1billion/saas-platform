@@ -12,6 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import ModuleAccessCard from "@/app/components/ModuleAccessCard";
 
 type UserRecord = Schema["User"]["type"];
 
@@ -57,6 +58,8 @@ export default function OrganizationSettingsPage() {
           </div>
         </dl>
       </section>
+
+      <ModuleAccessCard />
 
       <section className="mt-8">
         <h2 className="font-serif text-xl font-bold text-foreground">Members</h2>

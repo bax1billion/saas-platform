@@ -1,193 +1,131 @@
-# Onboarding Flow & Cognito Permission Groups
+# Sign-up, organization creation, and permission groups
 
-## Cognito Permission Groups
+How a person goes from the marketing page to a working, entitled
+organization — the implemented flow, the code behind each step, and the
+Cognito permission model. The invite path at the end is **planned, not
+built**.
 
-The foundation uses three Cognito groups for role-based access control: **Admin**, **Member**, and **Viewer**. Every GraphQL model in the schema specifies which groups can perform which operations.
+## The flow at a glance
 
-> Group names are defined in `amplify/shared/constants.ts`.
+```
+Marketing page → "Login" / auth modal (AuthModal)
+    │  sign up: email + password
+    ▼
+Cognito sends a verification code → user confirms (confirmSignUp)
+    │
+    ▼  PostConfirmation trigger (amplify/auth/post-confirmation/)
+    │   • creates the DynamoDB User record { cognitoSub, email, orgId: null }
+    │   • adds the user to the Viewer group (safe default)
+    ▼
+First sign-in → AuthContext loads { email, userId (sub), groups }
+    │
+    ▼  Any /(app) route → AppGate (app/(app)/layout.tsx)
+    │   EntitlementsProvider queries usersByCognitoSub → orgId is null
+    │   → redirect to /onboarding
+    ▼
+/onboarding (app/onboarding/page.tsx)
+    │  one field: organization name → provisionOrganization mutation
+    │
+    ▼  provisionOrganization Lambda (amplify/functions/create-organization/)
+    │   1. resolves the caller's User record (from the Cognito sub)
+    │   2. slugifies the name; finds a free slug via organizationsBySlug
+    │   3. creates the Organization
+    │   4. updates User { orgId, role: "Admin" }
+    │   5. AdminAddUserToGroup → Admin        (idempotent per user: calling
+    │      again returns the existing org)
+    ▼
+Client: refreshUser({ forceRefresh: true })   ← REQUIRED: pulls new tokens so
+    │                                            the Admin group claim exists
+    ▼
+/dashboard — org name in the sidebar, modules listed (locked until entitled)
+    │
+    ├── real customers: /subscribe → Stripe checkout → webhook mirrors the
+    │   subscription (tier, status, add-on modules) → entitled
+    └── pilots / dev orgs: Settings → "Pilot & development access" (Admin
+        card) writes Organization.settings overrides → entitled
+```
 
-### Admin
+## What each layer contributes
 
-The organization owner / primary account holder. Full CRUD on all org data, including the foundation models and every vertical model.
+| Step | Code | Notes |
+|---|---|---|
+| Auth modal (sign up / confirm / reset) | `app/components/AuthModal.tsx`, `AuthContext.tsx` | Modal-first; deep-linkable `/login` pages are an open roadmap decision |
+| User record + default group | `amplify/auth/post-confirmation/handler.ts` | Discovers the User table at runtime (no cross-stack ref); default group from `amplify/shared/constants.ts` (`Viewer`) |
+| Onboarding gate | `app/(app)/layout.tsx` (`AppGate`) + `app/components/EntitlementsContext.tsx` | `needsOnboarding` = signed in ∧ `User.orgId` null |
+| Org creation | `provisionOrganization` mutation → `amplify/functions/create-organization/handler.ts` | Named to avoid the generated `createOrganization` CRUD mutation. Runs with IAM, so it can write while the caller is still a Viewer |
+| Token refresh | `AuthContext.refreshUser({ forceRefresh: true })` | Without it the cached token lacks the Admin group and everything stays read-only |
+| Entitlements | `EntitlementsContext` → `resolveEntitledModules()` (`lib/modules`) | User → Organization → latest OrgSubscription; module set = included (if active) ∪ subscription `modules[]` ∪ `settings.modules` |
+| Backend enforcement | `amplify/data/entitlements/` | Gated mutations re-check the same rules server-side; errors: `OnboardingRequired` / `SubscriptionRequired` / `ModuleRequired` |
+| Pilot overrides | `app/components/ModuleAccessCard.tsx` on `/settings` | Admin-only; writes `Organization.settings` (`access: "comped"`, `modules[]`) |
+
+### Trying it end to end (developer checklist)
+
+1. Sandbox running (`npx ampx sandbox`), secrets set (see README).
+2. `npm run dev` → sign up with a real inbox → paste the code.
+3. You land on `/onboarding` → name the org → `/dashboard` as Admin.
+4. Settings → Pilot & development access → enable base access + a module.
+5. The module unlocks in the sidebar; open it and create records.
+
+Common trip-ups: skipping the sandbox (no backend), an unconfirmed email
+(PostConfirmation never fired → no User record), and testing with a user
+that predates a schema deploy.
+
+## Cognito permission groups
+
+Three groups, defined in `amplify/shared/constants.ts` and mirrored in
+`config/site.ts`. Precedence: Admin=0, Member=1, Viewer=2 (lowest wins).
+Groups gate **capability** (what you may do); entitlements gate **access**
+(what the org has bought) — the two are independent axes.
+
+### Admin — organization owner
 
 | Resource | Permissions |
 |----------|-------------|
-| Organization | create, read, update, delete |
-| User | create, read, update, delete |
-| Site | create, read, update, delete |
-| All vertical models | create, read, update, delete |
-| EventLog | read |
-| OrgSubscription | read |
-| StripeWebhookEvent | read |
+| Organization / User / Site | create, read, update, delete |
+| All vertical/module models | create, read, update, delete |
+| EventLog / OrgSubscription / StripeWebhookEvent | read |
 | NewsletterSubscriber | read, update |
+| Settings overrides (pilot access card) | write |
 
-### Member
-
-Day-to-day operators. Can manage most domain content but cannot manage the organization itself or billing.
-
-| Resource | Permissions |
-|----------|-------------|
-| Organization | read |
-| User | read |
-| Site | read |
-| Most vertical models | create, read, update, delete |
-| Sensitive vertical models (per vertical) | reduced (e.g., create, read, update only) |
-| EventLog | read |
-| OrgSubscription | read |
-
-### Viewer
-
-Read-only access across all domain data. Useful for auditors, executives, or external reviewers.
+### Member — day-to-day operator
 
 | Resource | Permissions |
 |----------|-------------|
-| All vertical models | read |
+| Organization / User / Site | read |
+| Most vertical/module models | create, read, update (delete per model) |
+| EventLog / OrgSubscription | read |
 
-### Per-Vertical Permission Matrices
+### Viewer — read-only
 
-Each vertical module defines a matrix like the above over its own models, following the pattern: Admin gets full CRUD, Member gets CRUD on day-to-day content with reduced rights on sensitive or approval-related models, Viewer gets read-only. Two example rows from the compliance vertical:
+Read across org data; can never export (module rule). Every new sign-up is
+a Viewer until an org creation (→ Admin) or, later, an invite assigns a
+role.
 
-| Resource (example, compliance vertical) | Admin | Member | Viewer |
-|----------|-------|--------|--------|
-| Document, DocumentVersion | create, read, update, delete | create, read, update, delete | read |
-| Approval | create, read, update, delete | create, read, update | read |
+Each module declares its own matrix over its models following the pattern
+(Admin full CRUD; Member the working set; Viewer read) — see the module's
+schema file under `amplify/data/modules/`.
 
-### Group Assignment
+## Planned: joining an existing organization (invites)
 
-- **On signup:** The PostConfirmation trigger assigns every new user to the **Viewer** group. This is a safe default that allows them to read data once they join an org.
-- **On onboarding (create org):** The user is promoted to **Admin** via `AdminAddUserToGroup`. They retain Viewer membership but Admin takes precedence (lowest precedence number wins — Admin=0, Member=1, Viewer=2).
-- **On onboarding (join org via invite):** The user is assigned the role specified in the invitation (Admin, Member, or Viewer).
-- **Role changes:** An Admin can change a user's Cognito group membership through the app's user management UI.
+Not built yet — today a second sign-up ends at `/onboarding` where their
+only option is creating a *new* org. The design:
 
----
+- An Admin generates an invite (org ID + intended role + one-time code).
+- The new user chooses "I have an invite code" on onboarding; the backend
+  links their User to the org, assigns the invited role's Cognito group,
+  and consumes the code.
+- Edge cases to honor: invite before sign-up, org switching/transfer, role
+  changes from a user-management UI.
 
-## Onboarding Flow
+Until then: demo and pilot with the org-creating Admin account, or move a
+user's `orgId` + group by hand (AppSync console / Cognito console).
 
-### Overview
-
-After signing up with email + password, the user has a Cognito account and a minimal DynamoDB User record (cognitoSub, email, no org). The frontend detects `orgId === null` and routes them to onboarding.
-
-```
-Signup (email + password)
-    |
-    v
-PostConfirmation trigger
-    |-- Creates User record (cognitoSub, email, no orgId)
-    |-- Adds user to Viewer group
-    |
-    v
-First sign-in
-    |
-    v
-Frontend checks: does user have orgId?
-    |
-    +-- No  --> Onboarding flow
-    |            |
-    |            +-- Path A: "Create an organization"
-    |            |
-    |            +-- Path B: "I have an invite code"
-    |
-    +-- Yes --> Dashboard (normal app experience)
-```
-
-### Path A — Create a New Organization
-
-For users starting fresh (e.g., a team lead setting up their company).
-
-**Step 1: Your Details**
-- First name, last name, job title
-- These are stored on the User record (not Cognito attributes)
-
-**Step 2: Organization Details**
-- Organization name (required)
-- Industry, address, phone, website (optional)
-- A URL slug is auto-generated from the org name
-
-**Step 3: Provisioning**
-Backend actions (can be handled by a single mutation or the frontend calling multiple mutations):
-1. Create the Organization record
-2. Update the User record: set orgId, firstName, lastName, role = "Admin"
-3. Promote user to Admin Cognito group (via a Lambda-backed custom mutation or API call)
-4. The existing `organization-trigger` fires on the new Organization INSERT and provisions the vertical's default seed records. (Example, compliance vertical: default standards — ISO 9001, ISO 13485, OSHA, FDA, EPA, Internal.)
-
-**Result:** User lands on the dashboard as an Admin of their new org with the vertical's defaults ready to go.
-
-### Path B — Join via Invite Code
-
-For users who were invited by an existing org's Admin.
-
-**Prerequisites:**
-- An Admin in the inviting org generates an invite (future feature: Invite model or a simple code/link mechanism)
-- The invite contains: org ID, intended role, and a unique invite code
-
-**Step 1: Enter Invite Code**
-- User pastes the invite code
-- Frontend validates the code (looks up the invite record)
-- Displays the org name and assigned role for confirmation
-
-**Step 2: Your Details**
-- First name, last name, job title
-
-**Step 3: Join**
-Backend actions:
-1. Update the User record: set orgId, firstName, lastName, role (from invite)
-2. Assign the appropriate Cognito group based on the invite role
-3. Mark the invite as consumed
-
-**Result:** User lands on the dashboard as a member of the existing org with the invited role.
-
-### Edge Cases
+## Edge cases (implemented behavior)
 
 | Scenario | Handling |
 |----------|----------|
-| User signs in but skips onboarding | `orgId` remains null. Frontend always checks and redirects back to onboarding. They can only access onboarding until completed. |
-| User signs up, never confirms email | Cognito handles this — user stays in UNCONFIRMED state. PostConfirmation trigger never fires. No DynamoDB record created. |
-| Invited user signs up before receiving invite | They go through Path A or wait. If they later receive an invite, an Admin can move them to the new org (future admin feature). |
-| User needs to switch organizations | Future feature. Could support multiple org memberships or org transfer. |
-
----
-
-## Data Model Context
-
-### User Record Lifecycle
-
-```
-1. PostConfirmation trigger creates:
-   {
-     id: <uuid>,
-     cognitoSub: "abc-123",
-     email: "user@example.com",
-     isActive: true,
-     sortDate: "2026-02-26T...",
-     orgId: null,          <-- no org yet
-     firstName: null,       <-- collected during onboarding
-     lastName: null,
-     role: null,
-   }
-
-2. After onboarding (Path A - create org):
-   {
-     ...
-     orgId: "org-uuid",
-     firstName: "Jane",
-     lastName: "Smith",
-     role: "Admin",
-     jobTitle: "Operations Lead",
-   }
-
-2. After onboarding (Path B - join via invite):
-   {
-     ...
-     orgId: "existing-org-uuid",
-     firstName: "Jane",
-     lastName: "Smith",
-     role: "Member",   <-- set by inviter
-     jobTitle: "Engineer",
-   }
-```
-
-### Key Queries
-
-- **Check if user needs onboarding:** `usersByCognitoSub(cognitoSub: sub)` → check if `orgId` is null
-- **List org members:** `usersByOrg(orgId: id)` → returns all users in an org
-- **Find user by email (for invites):** Add a `byEmail` secondary index on User if needed
+| Signed in, no org | Every `/(app)` route redirects to `/onboarding`; `/onboarding` is idempotent (an already-onboarded user is bounced to `/dashboard`) |
+| Never confirms email | Cognito keeps them UNCONFIRMED; no User record exists |
+| Org created, no subscription | Shell shows the "No active plan" banner; reads work, gated writes fail with `SubscriptionRequired` |
+| Calls `provisionOrganization` twice | Returns the existing org (idempotent per user) |
+| Group claim looks stale after onboarding | The client must force-refresh tokens; if a user reports read-only behavior right after onboarding, sign out/in |
