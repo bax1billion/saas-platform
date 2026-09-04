@@ -7,6 +7,7 @@ import { sesWebhookHandlerFunction } from '../functions/ses-webhook-handler/reso
 import { stripeWebhookHandlerFunction } from '../functions/stripe-webhook-handler/resource';
 import { createCheckoutSessionFunction } from '../functions/create-checkout-session/resource';
 import { createOrganizationFunction } from '../functions/create-organization/resource';
+import { getMediaUrlsFunction } from '../functions/get-media-urls/resource';
 import {
   verticalModels,
   verticalEntityTypes,
@@ -332,6 +333,28 @@ const schema = a
       .authorization((allow) => [allow.authenticated()])
       .handler(a.handler.function(createCheckoutSessionFunction)),
 
+    MediaAccessResponse: a.customType({
+      /** False when the media CDN is not in signed mode — fall back to
+       *  direct signed S3 URLs. */
+      enabled: a.boolean().required(),
+      domain: a.string(),
+      /** Query-string auth params to append to https://<domain>/<key>. */
+      params: a.string(),
+      expiresAt: a.datetime(),
+    }),
+
+    /** CloudFront signed access to media under one prefix (e.g. one case's
+     *  uploads). Authorization: org membership + the vertical's
+     *  amplify/data/media-auth.ts seam. See docs/image-delivery.md. */
+    getMediaAccess: a
+      .query()
+      .arguments({
+        prefix: a.string().required(),
+      })
+      .returns(a.ref('MediaAccessResponse'))
+      .authorization((allow) => [allow.authenticated()])
+      .handler(a.handler.function(getMediaUrlsFunction)),
+
     ProvisionOrganizationResponse: a.customType({
       orgId: a.id().required(),
       slug: a.string().required(),
@@ -369,6 +392,7 @@ const schema = a
     allow
       .resource(createOrganizationFunction)
       .to(['query', 'mutate']),
+    allow.resource(getMediaUrlsFunction).to(['query']),
   ]);
 
 export type Schema = ClientSchema<typeof schema>;

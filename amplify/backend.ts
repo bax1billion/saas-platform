@@ -10,6 +10,7 @@ import { sesWebhookHandlerFunction } from './functions/ses-webhook-handler/resou
 import { stripeWebhookHandlerFunction } from './functions/stripe-webhook-handler/resource';
 import { createCheckoutSessionFunction } from './functions/create-checkout-session/resource';
 import { createOrganizationFunction } from './functions/create-organization/resource';
+import { getMediaUrlsFunction } from './functions/get-media-urls/resource';
 import { postConfirmation } from './auth/post-confirmation/resource';
 import { verticalStreamTables, verticalModuleTables } from './data/vertical';
 import { createMediaCdn } from './custom/media-cdn/resource';
@@ -35,6 +36,7 @@ const backend = defineBackend({
   stripeWebhookHandlerFunction,
   createCheckoutSessionFunction,
   createOrganizationFunction,
+  getMediaUrlsFunction,
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -157,6 +159,7 @@ const allTriggerFunctions = [
   backend.stripeWebhookHandlerFunction,
   backend.createCheckoutSessionFunction,
   backend.createOrganizationFunction,
+  backend.getMediaUrlsFunction,
 ];
 
 const graphqlEndpoint = `https://${backend.data.resources.graphqlApi.apiId}.appsync-api.${backend.stack.region}.amazonaws.com/graphql`;
@@ -315,12 +318,18 @@ s3Notifications.node.addDependency(s3InvokePermission);
 // ═══════════════════════════════════════════════════════════════════
 
 const mediaCdnStack = backend.createStack('media-cdn');
-createMediaCdn(mediaCdnStack, {
+const mediaCdn = createMediaCdn(mediaCdnStack, {
   originalsBucket: backend.storage.resources.bucket,
   allowedPrefixes: ['uploads/', 'logos/'],
   allowOpen: process.env.MEDIA_CDN_ALLOW_OPEN === '1',
   publicKeyPem: process.env.MEDIA_CDN_PUBLIC_KEY,
 });
+
+// URL signer (getMediaAccess query) needs the distribution identity.
+const getMediaUrlsLambda = backend.getMediaUrlsFunction.resources
+  .lambda as lambda.Function;
+getMediaUrlsLambda.addEnvironment('MEDIA_CDN_DOMAIN', mediaCdn.domain);
+getMediaUrlsLambda.addEnvironment('MEDIA_CDN_KEY_PAIR_ID', mediaCdn.keyPairId);
 
 // ═══════════════════════════════════════════════════════════════════
 // #5 Stripe Function URL
