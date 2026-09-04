@@ -130,6 +130,16 @@ build). Per app/branch, configure in the console:
    bounce/complaint notification destination.
 3. SES per account: verify the sending domain and request production access
    (every fresh account starts sandboxed to verified recipients).
+4. Media CDN signed mode (optional until image delivery matters): generate
+   an RSA key pair (`openssl genrsa -out media-cdn.pem 2048 && openssl rsa
+   -in media-cdn.pem -pubout -out media-cdn.pub`); set the private key as
+   the `MEDIA_CDN_PRIVATE_KEY` secret and the public PEM as the
+   `MEDIA_CDN_PUBLIC_KEY` environment variable (synth-time) → redeploy.
+   Without keys the CDN fails closed and clients use direct signed S3
+   URLs; `MEDIA_CDN_ALLOW_OPEN=1` is for sandbox testing only. The
+   `MEDIA_CDN_PRIVATE_KEY` secret must exist in every environment
+   (placeholder fine). Read the `MediaCdnDomain` / `MediaCdnMode` outputs
+   to confirm the mode.
 
 ### Amplify files: tracked vs generated
 
