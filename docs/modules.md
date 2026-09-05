@@ -92,7 +92,7 @@ holds the module. Add each new module's models to that map.
 |---|---|
 | `availability: "included"` | Entitled whenever the org has an access-granting subscription (ACTIVE / TRIALING / PAST_DUE). |
 | `OrgSubscription.modules[]` | Add-on line items on the Stripe subscription. Written only by the Stripe webhook, which maps each line item's Product metadata `module=<id>`. |
-| `Organization.settings.modules[]` | Admin-granted overrides — pilots, comps, internal orgs. This is also the sandbox path while the webhook is stubbed: set it on the org record to unlock a module locally. |
+| `Organization.settings.modules[]` | Admin-granted overrides — pilots, comps, internal orgs. Toggled from the "Pilot & development access" card on /settings (shown in local dev; deployed environments opt in with the `NEXT_PUBLIC_PILOT_ACCESS=1` build env var — set it for staging, never production). |
 | `availability: "coming-soon"` | Never entitled; no routes required. |
 
 Within a module, gate on **scale**, not capability, exactly like tiers

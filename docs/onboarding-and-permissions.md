@@ -56,7 +56,7 @@ Client: refreshUser({ forceRefresh: true })   ← REQUIRED: pulls new tokens so
 | Token refresh | `AuthContext.refreshUser({ forceRefresh: true })` | Without it the cached token lacks the Admin group and everything stays read-only |
 | Entitlements | `EntitlementsContext` → `resolveEntitledModules()` (`lib/modules`) | User → Organization → latest OrgSubscription; module set = included (if active) ∪ subscription `modules[]` ∪ `settings.modules` |
 | Backend enforcement | `amplify/data/entitlements/` | Gated mutations re-check the same rules server-side; errors: `OnboardingRequired` / `SubscriptionRequired` / `ModuleRequired` |
-| Pilot overrides | `app/components/ModuleAccessCard.tsx` on `/settings` | Admin-only; writes `Organization.settings` (`access: "comped"`, `modules[]`) |
+| Pilot overrides | `app/components/ModuleAccessCard.tsx` on `/settings` | Admin-only; writes `Organization.settings` (`access: "comped"`, `modules[]`). Visible in local dev, and on deployed branches only with `NEXT_PUBLIC_PILOT_ACCESS=1` |
 
 ### Trying it end to end (developer checklist)
 
