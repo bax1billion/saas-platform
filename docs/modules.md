@@ -148,4 +148,5 @@ and `amplify/data/vertical.ts` spreads them into the vertical exports.
 6. If it's an add-on: create the Stripe Product (metadata `module=<id>`) and
    Price; set the `STRIPE_PRICE_MODULE_<ID>` secret; add it to
    `verticalModulePriceSecrets`.
-7. Run `npx tsc --noEmit` and `npx next build`; deploy the sandbox.
+7. Run `npm test`, `npx tsc --noEmit`, `npm run check:backend`, and
+   `npx next build`; deploy the sandbox.

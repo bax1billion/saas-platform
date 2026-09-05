@@ -11,7 +11,8 @@ const USER_POOL_ID = process.env.USER_POOL_ID!;
 
 type UserRecord = { id: string; orgId: string | null; email: string };
 
-function slugify(name: string): string {
+/** Exported for unit tests. */
+export function slugify(name: string): string {
   return (
     name
       .toLowerCase()

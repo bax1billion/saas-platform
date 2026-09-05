@@ -363,8 +363,9 @@ org must be able to subscribe). Errors surface as GraphQL errors with
 
 The decision logic mirrors the client's `resolveEntitledModules()` exactly;
 keep the two in step. `npm run check:backend` validates the wiring;
-`npm run check:entitlements` runs the resolver code against a decision
-table with a stubbed AppSync runtime.
+the decision table lives in
+`amplify/data/entitlements/decision.test.ts` (vitest; `npm run
+check:entitlements` runs just that suite).
 
 **Still open:** scale limits (`TIER_LIMITS.maxUsers/maxSites` and module
 countables) are not enforced server-side yet — that needs a count query per
