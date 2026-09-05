@@ -37,6 +37,7 @@ Set via `npx ampx sandbox secret set <NAME>` (see `.env.local` for the frontend 
 | `STRIPE_PRICE_CORE` / `STRIPE_PRICE_GROWTH` / `STRIPE_PRICE_SCALE` | checkout session creation |
 | `STRIPE_WEBHOOK_SECRET` | webhook signature verification |
 | `STRIPE_PRICE_MODULE_<ID>` (one per add-on in `amplify/data/vertical.ts`) | checkout add-on line items — **must exist in every environment before deploy**, placeholder value is fine |
+| `MEDIA_CDN_PRIVATE_KEY` | media-CDN URL signer (`getMediaAccess`) — must exist in every environment (placeholder fine until signed mode); pair with the `MEDIA_CDN_PUBLIC_KEY` env var at synth |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | `.env.local` (frontend) |
 
 ## Repo layout
