@@ -11,7 +11,15 @@ import { defaultProvider } from '@aws-sdk/credential-provider-node';
  * (set for every function in allTriggerFunctions by amplify/backend.ts).
  */
 
-const GRAPHQL_ENDPOINT = process.env.GRAPHQL_ENDPOINT!;
+// GRAPHQL_ENDPOINT is set by amplify/backend.ts; AMPLIFY_DATA_GRAPHQL_ENDPOINT
+// is Amplify's own SSM-resolved value on schema-granted functions. Resolved
+// lazily so the SSM banner has run before we read it.
+function endpoint(): string {
+  const url =
+    process.env.GRAPHQL_ENDPOINT || process.env.AMPLIFY_DATA_GRAPHQL_ENDPOINT;
+  if (!url) throw new Error('GRAPHQL_ENDPOINT is not configured');
+  return url;
+}
 
 let signer: SignatureV4 | undefined;
 
@@ -31,23 +39,24 @@ export async function graphql<T = unknown>(
   query: string,
   variables?: Record<string, unknown>
 ): Promise<T> {
-  const endpoint = new URL(GRAPHQL_ENDPOINT);
+  const graphqlEndpoint = endpoint();
+  const url = new URL(graphqlEndpoint);
   const body = JSON.stringify({ query, variables });
 
   const request = new HttpRequest({
     method: 'POST',
-    hostname: endpoint.hostname,
-    path: endpoint.pathname,
+    hostname: url.hostname,
+    path: url.pathname,
     headers: {
       'Content-Type': 'application/json',
-      host: endpoint.hostname,
+      host: url.hostname,
     },
     body,
   });
 
   const signed = await getSigner().sign(request);
 
-  const response = await fetch(GRAPHQL_ENDPOINT, {
+  const response = await fetch(graphqlEndpoint, {
     method: 'POST',
     headers: signed.headers,
     body,
