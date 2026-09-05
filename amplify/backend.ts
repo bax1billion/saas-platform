@@ -162,7 +162,11 @@ const allTriggerFunctions = [
   backend.getMediaUrlsFunction,
 ];
 
-const graphqlEndpoint = `https://${backend.data.resources.graphqlApi.apiId}.appsync-api.${backend.stack.region}.amazonaws.com/graphql`;
+// The GraphQL hostname is its own identifier — NOT the apiId. Building
+// the URL from apiId resolves to a nonexistent host and every Lambda
+// callback into AppSync dies with undici's "fetch failed".
+const graphqlEndpoint =
+  backend.data.resources.cfnResources.cfnGraphqlApi.attrGraphQlUrl;
 
 for (const fn of allTriggerFunctions) {
   fn.resources.lambda.addToRolePolicy(
