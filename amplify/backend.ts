@@ -58,6 +58,7 @@ const streamEventSources: Record<string, lambda.IFunction[]> = {
   User: [backend.eventLoggerFunction.resources.lambda],
   Site: [backend.eventLoggerFunction.resources.lambda],
   OrgSubscription: [backend.eventLoggerFunction.resources.lambda],
+  OrgEntitlementOverride: [backend.eventLoggerFunction.resources.lambda],
   NewsletterSubscriber: [
     backend.eventLoggerFunction.resources.lambda,
     backend.newsletterSubscriberTriggerFunction.resources.lambda,

@@ -92,6 +92,7 @@ const schema = a
       'NEWSLETTER_SUBSCRIBER',
       'SUBSCRIPTION',
       'STRIPE_WEBHOOK_EVENT',
+      'ORG_ENTITLEMENT_OVERRIDE',
       ...verticalEntityTypes,
     ]),
 
@@ -114,6 +115,7 @@ const schema = a
         users: a.hasMany('User', 'orgId'),
         sites: a.hasMany('Site', 'orgId'),
         subscriptions: a.hasMany('OrgSubscription', 'orgId'),
+        entitlementOverrides: a.hasMany('OrgEntitlementOverride', 'orgId'),
       })
       .secondaryIndexes((index) => [
         index('slug').queryField('organizationsBySlug'),
@@ -282,6 +284,38 @@ const schema = a
           .queryField('subscriptionsByStatus'),
       ])
       .authorization((allow) => [
+        allow.groups(['Admin', 'Member', 'Viewer']).to(['read']),
+      ]),
+
+    /** Platform-operator-granted entitlements: pilots, comps, and offline
+     *  purchases (checks/POs, where card payments over agency limits are
+     *  not allowed). Replaces the old Organization.settings overrides so
+     *  org Admins cannot grant themselves access — Operator writes, org
+     *  roles read. Latest record per org wins; expiresAt bounds PO terms.
+     *  See docs/modules.md → Entitlements. */
+    OrgEntitlementOverride: a
+      .model({
+        orgId: a.id().required(),
+        /** "comped" grants base access without a subscription. */
+        access: a.string(),
+        /** Add-on module ids granted outside Stripe. */
+        modules: a.string().array(),
+        /** Why: "90-day founding pilot", "PO #1234 check net-30", … */
+        reason: a.string(),
+        /** Operator email, for the audit trail. */
+        grantedBy: a.string(),
+        /** Grant is ignored after this instant (annual PO terms). */
+        expiresAt: a.datetime(),
+        sortDate: a.datetime().required(),
+        organization: a.belongsTo('Organization', 'orgId'),
+      })
+      .secondaryIndexes((index) => [
+        index('orgId')
+          .sortKeys(['sortDate'])
+          .queryField('entitlementOverridesByOrg'),
+      ])
+      .authorization((allow) => [
+        allow.group('Operator').to(['create', 'read', 'update', 'delete']),
         allow.groups(['Admin', 'Member', 'Viewer']).to(['read']),
       ]),
 

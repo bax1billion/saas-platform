@@ -24,6 +24,7 @@ const util = {
     throw new GqlError(m, t);
   },
   dynamodb: { toMapValues: (o: unknown) => o },
+  time: { nowISO8601: () => new Date().toISOString() },
 };
 const runtime = { earlyReturn: (v: unknown) => ({ [EARLY]: true, value: v }) };
 
@@ -45,14 +46,14 @@ function load(file: string, replacements: Record<string, string> = {}): Step {
 
 const steps = [
   load("user.js"),
-  load("org.js"),
+  load("override.js"),
   load("subscription.js", { __FIELD_MODULE__: JSON.stringify(FIELD_MODULE) }),
 ];
 
 interface Case {
   identity?: unknown;
   user?: Record<string, unknown> | null;
-  org?: Record<string, unknown> | null;
+  override?: Record<string, unknown> | null;
   sub?: Record<string, unknown> | null;
   field: string;
 }
@@ -68,7 +69,7 @@ function run(c: Case): string {
   };
   const results = [
     { items: c.user ? [c.user] : [] },
-    c.org ?? null,
+    { items: c.override ? [c.override] : [] },
     { items: c.sub ? [c.sub] : [] },
   ];
   try {
@@ -87,7 +88,8 @@ function run(c: Case): string {
 
 const cognito = { claims: { sub: "sub-1" } };
 const member = { orgId: "org-1" };
-const org = { id: "org-1" };
+const future = new Date(Date.now() + 86_400_000).toISOString();
+const past = new Date(Date.now() - 86_400_000).toISOString();
 
 describe("backend entitlement decision table", () => {
   const cases: Array<[string, Case, string]> = [
@@ -95,18 +97,21 @@ describe("backend entitlement decision table", () => {
     ["no identity bypasses (model auth limits API key reach)", { identity: null, field: "createSite" }, "ALLOW"],
     ["no User record → onboarding", { identity: cognito, user: null, field: "createSite" }, "OnboardingRequired"],
     ["User without org → onboarding", { identity: cognito, user: { orgId: null }, field: "createSite" }, "OnboardingRequired"],
-    ["no subscription → denied", { identity: cognito, user: member, org, sub: null, field: "createSite" }, "SubscriptionRequired"],
-    ["CANCELED → denied", { identity: cognito, user: member, org, sub: { status: "CANCELED" }, field: "createSite" }, "SubscriptionRequired"],
-    ["INCOMPLETE → denied", { identity: cognito, user: member, org, sub: { status: "INCOMPLETE" }, field: "createSite" }, "SubscriptionRequired"],
-    ["PAST_DUE → allowed (grace)", { identity: cognito, user: member, org, sub: { status: "PAST_DUE" }, field: "createSite" }, "ALLOW"],
-    ["TRIALING → allowed", { identity: cognito, user: member, org, sub: { status: "TRIALING" }, field: "createSite" }, "ALLOW"],
-    ["ACTIVE, module missing → denied", { identity: cognito, user: member, org, sub: { status: "ACTIVE", modules: [] }, field: "createWidget" }, "ModuleRequired"],
-    ["ACTIVE + module line item", { identity: cognito, user: member, org, sub: { status: "ACTIVE", modules: ["widgets"] }, field: "createWidget" }, "ALLOW"],
-    ["comped org, module via settings", { identity: cognito, user: member, org: { ...org, settings: '{"access":"comped","modules":["widgets"]}' }, sub: null, field: "createWidget" }, "ALLOW"],
-    ["comped org, module NOT granted", { identity: cognito, user: member, org: { ...org, settings: '{"access":"comped"}' }, sub: null, field: "createWidget" }, "ModuleRequired"],
-    ["settings already an object", { identity: cognito, user: member, org: { ...org, settings: { modules: ["widgets"] } }, sub: { status: "TRIALING" }, field: "createWidget" }, "ALLOW"],
-    ["ungated field with active sub", { identity: cognito, user: member, org, sub: { status: "ACTIVE" }, field: "updateOrganization" }, "ALLOW"],
+    ["no subscription → denied", { identity: cognito, user: member, sub: null, field: "createSite" }, "SubscriptionRequired"],
+    ["CANCELED → denied", { identity: cognito, user: member, sub: { status: "CANCELED" }, field: "createSite" }, "SubscriptionRequired"],
+    ["INCOMPLETE → denied", { identity: cognito, user: member, sub: { status: "INCOMPLETE" }, field: "createSite" }, "SubscriptionRequired"],
+    ["PAST_DUE → allowed (grace)", { identity: cognito, user: member, sub: { status: "PAST_DUE" }, field: "createSite" }, "ALLOW"],
+    ["TRIALING → allowed", { identity: cognito, user: member, sub: { status: "TRIALING" }, field: "createSite" }, "ALLOW"],
+    ["ACTIVE, module missing → denied", { identity: cognito, user: member, sub: { status: "ACTIVE", modules: [] }, field: "createWidget" }, "ModuleRequired"],
+    ["ACTIVE + module line item", { identity: cognito, user: member, sub: { status: "ACTIVE", modules: ["widgets"] }, field: "createWidget" }, "ALLOW"],
+    ["operator override: comped + module", { identity: cognito, user: member, override: { access: "comped", modules: ["widgets"] }, sub: null, field: "createWidget" }, "ALLOW"],
+    ["operator override: comped, module NOT granted", { identity: cognito, user: member, override: { access: "comped" }, sub: null, field: "createWidget" }, "ModuleRequired"],
+    ["operator override with future expiry honored", { identity: cognito, user: member, override: { access: "comped", modules: ["widgets"], expiresAt: future }, sub: null, field: "createWidget" }, "ALLOW"],
+    ["EXPIRED operator override grants nothing", { identity: cognito, user: member, override: { access: "comped", modules: ["widgets"], expiresAt: past }, sub: null, field: "createWidget" }, "SubscriptionRequired"],
+    ["expired override does not shadow a live subscription", { identity: cognito, user: member, override: { access: "comped", expiresAt: past }, sub: { status: "ACTIVE", modules: ["widgets"] }, field: "createWidget" }, "ALLOW"],
+    ["ungated field with active sub", { identity: cognito, user: member, sub: { status: "ACTIVE" }, field: "updateOrganization" }, "ALLOW"],
   ];
+
 
   it.each(cases)("%s", (_name, input, expected) => {
     expect(run(input)).toBe(expected);

@@ -92,7 +92,7 @@ holds the module. Add each new module's models to that map.
 |---|---|
 | `availability: "included"` | Entitled whenever the org has an access-granting subscription (ACTIVE / TRIALING / PAST_DUE). |
 | `OrgSubscription.modules[]` | Add-on line items on the Stripe subscription. Written only by the Stripe webhook, which maps each line item's Product metadata `module=<id>`. |
-| `Organization.settings.modules[]` | Admin-granted overrides — pilots, comps, internal orgs. This is also the sandbox path while the webhook is stubbed: set it on the org record to unlock a module locally. |
+| `OrgEntitlementOverride` (latest per org, honors `expiresAt`) | **Platform-operator grants** — pilots, comps, and offline purchases (checks/POs). Written only by the `Operator` Cognito group; org roles read. Managed from the operator card on /settings (renders only for Operators) or the AppSync console. Replaces the old `Organization.settings` overrides, which org Admins could write themselves. |
 | `availability: "coming-soon"` | Never entitled; no routes required. |
 
 Within a module, gate on **scale**, not capability, exactly like tiers

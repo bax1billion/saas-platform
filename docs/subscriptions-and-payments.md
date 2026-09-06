@@ -86,6 +86,27 @@ The foundation rows below apply to every product built on the platform; each ver
 
 Positioning copy is per-product and lives in the config layer (`config/pricing.ts`); the lines above are the pattern.
 
+### Offline purchasing, trials, and contracts (government reality)
+
+Most government agencies cannot put more than ~$5K on a card without
+special approval — larger annual purchases arrive as **checks against
+purchase orders**, often with contract + signature requirements at
+registration, and prospects expect **free-trial codes**. Direction:
+
+- **Manual licenses = `OrgEntitlementOverride`.** An Operator grants the
+  org access (`access: "comped"` + modules) with `reason` ("PO #1234,
+  check net-30") and `expiresAt` matching the PO term. Expiry is enforced
+  server-side; renewal is a new grant. Stripe is not involved, so nothing
+  breaks when payment is a check. Optionally mirror the paperwork in
+  Stripe later via `send_invoice` mode invoices marked paid by check.
+- **Card self-service stays Stripe Checkout** for sub-limit purchases.
+- **Trial codes (roadmap):** invite/promo code at registration granting a
+  time-boxed override (the `expiresAt` machinery already exists) or a
+  Stripe trial via promotion code — decide with the pilot cohort.
+- **Contracts & signatures at registration (roadmap):** e-sign integration
+  gating org activation for agency plans; capture the executed document on
+  the org record. Scope with counsel before building.
+
 ### Add-on modules
 
 Tiers gate scale; **modules** gate which products an org has bought. A
@@ -349,7 +370,7 @@ client changes:
 | Step | Data source | Does |
 |---|---|---|
 | `EntitlementUserFn` | `UserTable` (GSI `usersByCognitoSub`) | Resolves the caller's `orgId`; IAM callers (Lambdas) have no Cognito claims and **bypass** |
-| `EntitlementOrgFn` | `OrganizationTable` | Reads `settings.access === "comped"` and `settings.modules[]` overrides |
+| `EntitlementOverrideFn` | `OrgEntitlementOverrideTable` (GSI `orgEntitlementOverridesByOrgIdAndSortDate`, latest) | Reads the operator-granted override (comped/base access + modules), honoring `expiresAt` |
 | `EntitlementSubscriptionFn` | `OrgSubscriptionTable` (GSI `orgSubscriptionsByOrgIdAndSortDate`, latest) | Decides: active = status ∈ {ACTIVE, TRIALING, PAST_DUE} or comped; module fields also need the module id in `OrgSubscription.modules ∪ settings.modules` |
 
 Gated fields are `create|update|delete<Model>` for:
