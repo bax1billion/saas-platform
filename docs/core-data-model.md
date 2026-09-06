@@ -165,6 +165,74 @@ All model access is declared with `a.authorization()`. Recurring patterns:
 - **Authorization modes:** `defaultAuthorizationMode: 'userPool'`;
   `apiKeyAuthorizationMode: { expiresInDays: 365 }`.
 
+#### Field-level authorization: protected columns vs. separate models
+
+Amplify authorization also works per **field** — a rule on an individual
+field overrides the model's rules for that field. This is the right tool
+when a row is client-owned but some of its *columns* are server-computed,
+and it avoids splitting one entity into a client-written model plus a
+server-written twin. The decision rule:
+
+- **Different writers for different *columns* of the same row → one model
+  with field-level rules.** Example: a member-created request whose
+  decision fields (`status`, `decidedBy`, `decidedAt`) only a workflow
+  Lambda may set. Same shape as 1:1 satellite models (per-member
+  preferences, per-export reconciliation results) — fold them into the
+  parent as protected fields rather than minting a new table.
+- **Different writer or lifecycle for the *rows* themselves → separate
+  server-written model.** Append-only evidence (`EventLog`,
+  `StripeWebhookEvent`, ledgers, decision logs), unbounded 1:N children
+  created over time, and whole-row owner isolation (private notes) cannot
+  be expressed with field rules: "clients may never create/update a row of
+  this kind" is a model-level property. These keep read-only group rules
+  with writes via the schema-level Lambda grants (above).
+
+Sketch of the one-model form:
+
+```ts
+Submission: a
+  .model({
+    orgId: a.id().required(),
+    body: a.string().required(),
+    // Server-decided columns. A field rule REPLACES the model rules for
+    // that field, so the read grant must be restated here; omitting a
+    // write grant is what locks the field to the Lambda IAM path.
+    status: a
+      .string()
+      .required()
+      .authorization((allow) => [
+        allow.groups(['Admin', 'Member', 'Viewer']).to(['read']),
+      ]),
+    decidedBy: a
+      .id()
+      .authorization((allow) => [
+        allow.groups(['Admin', 'Member', 'Viewer']).to(['read']),
+      ]),
+  })
+  .authorization((allow) => [
+    allow.groups(['Admin', 'Member']).to(['create', 'read', 'update']),
+    allow.group('Viewer').to(['read']),
+  ]),
+```
+
+Sharp edges to respect:
+
+1. **Field rules replace, never extend, the model rules** for that field.
+   Forgetting to restate a read grant silently removes read access.
+2. **A denied field comes back as `null` plus a GraphQL error**, not a
+   clean omission — clients selecting protected fields must tolerate
+   partial responses, and a subscription whose selection set includes a
+   protected field can fail authorization for under-privileged
+   subscribers. Prefer leaving protected fields out of subscription
+   selection sets.
+3. **Server writes still ride the schema-level IAM grants** (2.5). Keep
+   those scoped to the specific functions; don't widen an IAM rule to make
+   a field pattern "work" — that was the failure mode this pattern
+   replaces.
+4. Field rules don't change storage: the field still lives on the same
+   item, shares the model's GSI budget, and streams into `EventLog` with
+   the rest of the row.
+
 ### 2.6 Stripe-mirroring conventions
 
 Stripe is always the source of truth for billing; the database holds a local
@@ -567,7 +635,12 @@ conventions above:
 - **Auth:** standard CRUD models get the group-tier pattern (Admin CRUD,
   manager-group CRUD, Viewer read); anything server-computed gets read-only
   group rules with writes via schema-level `allow.resource(fn)` grants for
-  its trigger Lambdas.
+  its trigger Lambdas. Before minting a separate server-written model, apply
+  the column-vs-row rule in 2.5: server-computed *columns* on a client-owned
+  row (decision fields, derived rollups, 1:1 satellites) belong on the same
+  model behind field-level authorization; separate models are for rows
+  clients may never create — append-only evidence, unbounded server-written
+  children, and owner-isolated records.
 - **EventLog integration:** add one `EntityType` value per model and any
   domain-specific `EventAction` values; wire the model's table stream into the
   `eventLogger` Lambda; keep a denormalized actor-id field (e.g.
