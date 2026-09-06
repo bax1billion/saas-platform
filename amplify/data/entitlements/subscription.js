@@ -3,8 +3,8 @@
  * Data source: OrgSubscriptionTable.
  *
  * Mirrors lib/modules resolveEntitledModules() on the server:
- *   active  = status ∈ {ACTIVE, TRIALING, PAST_DUE}  or  org comped
- *   modules = OrgSubscription.modules ∪ Organization.settings.modules
+ *   active  = status ∈ {ACTIVE, TRIALING, PAST_DUE}  or  operator-comped
+ *   modules = OrgSubscription.modules ∪ OrgEntitlementOverride.modules
  * A gated field needs `active`; a module field additionally needs its
  * module id in `modules`. FIELD_MODULE is injected at synth from the
  * gated-field map (amplify/data/entitlements/index.ts).

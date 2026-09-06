@@ -18,18 +18,21 @@ import type { TierId } from "@/config/pricing";
 type UserRecord = Schema["User"]["type"];
 type OrgRecord = Schema["Organization"]["type"];
 type SubscriptionRecord = Schema["OrgSubscription"]["type"];
+type OverrideRecord = Schema["OrgEntitlementOverride"]["type"];
 export type SubscriptionStatus = SubscriptionRecord["status"];
 
 /**
- * Shape of the `Organization.settings` JSON bag as read by the foundation.
- * Verticals may add keys; these are the ones entitlement resolution knows.
+ * Shape of the `Organization.settings` JSON bag. Entitlement overrides no
+ * longer live here — they moved to the OrgEntitlementOverride model
+ * (Operator-written) so org Admins cannot grant themselves access.
  */
 export interface OrgSettings {
-  /** Admin-granted add-on module ids (pilots, comps, internal orgs). */
-  modules?: string[];
-  /** "comped" grants base access without a Stripe subscription. */
-  access?: "comped";
   [key: string]: unknown;
+}
+
+/** True while the operator-granted override is unexpired. */
+function overrideIsLive(o: OverrideRecord | null): o is OverrideRecord {
+  return o !== null && (!o.expiresAt || o.expiresAt > new Date().toISOString());
 }
 
 const ACCESS_GRANTING: SubscriptionStatus[] = ["ACTIVE", "TRIALING", "PAST_DUE"];
@@ -41,9 +44,11 @@ type EntitlementsContextType = {
   org: OrgRecord | null;
   orgSettings: OrgSettings;
   subscription: SubscriptionRecord | null;
+  /** Latest operator-granted override record (may be expired). */
+  entitlementOverride: OverrideRecord | null;
   tier: TierId | "TRIAL" | null;
   status: SubscriptionStatus | null;
-  /** ACTIVE / TRIALING / PAST_DUE, or a comped org. */
+  /** ACTIVE / TRIALING / PAST_DUE, or an unexpired operator comp. */
   isActive: boolean;
   /** Signed in but no organization yet. */
   needsOnboarding: boolean;
@@ -61,6 +66,7 @@ const EntitlementsContext = createContext<EntitlementsContextType>({
   org: null,
   orgSettings: {},
   subscription: null,
+  entitlementOverride: null,
   tier: null,
   status: null,
   isActive: false,
@@ -79,12 +85,14 @@ type LoadedRecords = {
   userRecord: UserRecord | null;
   org: OrgRecord | null;
   subscription: SubscriptionRecord | null;
+  entitlementOverride: OverrideRecord | null;
 };
 
 const EMPTY_RECORDS: LoadedRecords = {
   userRecord: null,
   org: null,
   subscription: null,
+  entitlementOverride: null,
 };
 
 async function fetchRecords(cognitoSub: string | null): Promise<LoadedRecords> {
@@ -95,23 +103,33 @@ async function fetchRecords(cognitoSub: string | null): Promise<LoadedRecords> {
     cognitoSub,
   });
   const userRecord = users?.[0] ?? null;
-  if (!userRecord?.orgId) return { userRecord, org: null, subscription: null };
+  if (!userRecord?.orgId) return { ...EMPTY_RECORDS, userRecord };
 
-  const [{ data: org }, { data: subs }] = await Promise.all([
-    client.models.Organization.get({ id: userRecord.orgId }),
-    client.models.OrgSubscription.subscriptionsByOrg(
-      { orgId: userRecord.orgId },
-      { sortDirection: "DESC", limit: 1 }
-    ),
-  ]);
-  return { userRecord, org: org ?? null, subscription: subs?.[0] ?? null };
+  const [{ data: org }, { data: subs }, { data: overrides }] =
+    await Promise.all([
+      client.models.Organization.get({ id: userRecord.orgId }),
+      client.models.OrgSubscription.subscriptionsByOrg(
+        { orgId: userRecord.orgId },
+        { sortDirection: "DESC", limit: 1 }
+      ),
+      client.models.OrgEntitlementOverride.entitlementOverridesByOrg(
+        { orgId: userRecord.orgId },
+        { sortDirection: "DESC", limit: 1 }
+      ),
+    ]);
+  return {
+    userRecord,
+    org: org ?? null,
+    subscription: subs?.[0] ?? null,
+    entitlementOverride: overrides?.[0] ?? null,
+  };
 }
 
 /**
- * Loads User → Organization → latest OrgSubscription for the signed-in user
- * and resolves module entitlements. Mount inside AuthProvider, only on
- * routes that need it (the app shell and onboarding) — marketing pages
- * shouldn't pay for three queries per visit.
+ * Loads User → Organization → latest OrgSubscription + operator override
+ * for the signed-in user and resolves module entitlements. Mount inside
+ * AuthProvider, only on routes that need it (the app shell and onboarding)
+ * — marketing pages shouldn't pay for the queries per visit.
  */
 export default function EntitlementsProvider({
   children,
@@ -124,7 +142,7 @@ export default function EntitlementsProvider({
     undefined
   );
   const [records, setRecords] = useState<LoadedRecords>(EMPTY_RECORDS);
-  const { userRecord, org, subscription } = records;
+  const { userRecord, org, subscription, entitlementOverride } = records;
 
   const currentUserId = user?.userId ?? null;
 
@@ -155,15 +173,20 @@ export default function EntitlementsProvider({
 
   const value = useMemo<EntitlementsContextType>(() => {
     const orgSettings = parseJsonField<OrgSettings>(org?.settings, {});
+    const liveOverride = overrideIsLive(entitlementOverride)
+      ? entitlementOverride
+      : null;
     const status = subscription?.status ?? null;
     const isActive =
       (status !== null && ACCESS_GRANTING.includes(status)) ||
-      orgSettings.access === "comped";
+      liveOverride?.access === "comped";
     const modules = resolveEntitledModules({
       subscriptionModules: subscription?.modules?.filter(
         (m): m is string => typeof m === "string"
       ),
-      orgModules: orgSettings.modules,
+      orgModules: liveOverride?.modules?.filter(
+        (m): m is string => typeof m === "string"
+      ),
       hasActiveSubscription: isActive,
     });
     const loaded = !isLoading;
@@ -174,6 +197,7 @@ export default function EntitlementsProvider({
       org,
       orgSettings,
       subscription,
+      entitlementOverride,
       tier: (subscription?.tier as TierId | "TRIAL" | undefined) ?? null,
       status,
       isActive,
@@ -191,6 +215,7 @@ export default function EntitlementsProvider({
     userRecord,
     org,
     subscription,
+    entitlementOverride,
     load,
   ]);
 

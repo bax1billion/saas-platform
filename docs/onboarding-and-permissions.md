@@ -56,7 +56,7 @@ Client: refreshUser({ forceRefresh: true })   ← REQUIRED: pulls new tokens so
 | Token refresh | `AuthContext.refreshUser({ forceRefresh: true })` | Without it the cached token lacks the Admin group and everything stays read-only |
 | Entitlements | `EntitlementsContext` → `resolveEntitledModules()` (`lib/modules`) | User → Organization → latest OrgSubscription; module set = included (if active) ∪ subscription `modules[]` ∪ `settings.modules` |
 | Backend enforcement | `amplify/data/entitlements/` | Gated mutations re-check the same rules server-side; errors: `OnboardingRequired` / `SubscriptionRequired` / `ModuleRequired` |
-| Pilot overrides | `app/components/ModuleAccessCard.tsx` on `/settings` | Admin-only; writes `Organization.settings` (`access: "comped"`, `modules[]`). Visible in local dev, and on deployed branches only with `NEXT_PUBLIC_PILOT_ACCESS=1` |
+| Operator overrides | `app/components/ModuleAccessCard.tsx` on `/settings` | Operator-group only; manages the org's `OrgEntitlementOverride` (comped/base access, modules, reason, expiry). Note: the in-app card requires the operator to be a member of that org — cross-org grants go through the AppSync console until an internal operator surface exists |
 
 ### Trying it end to end (developer checklist)
 
@@ -72,10 +72,26 @@ that predates a schema deploy.
 
 ## Cognito permission groups
 
-Three groups, defined in `amplify/shared/constants.ts` and mirrored in
-`config/site.ts`. Precedence: Admin=0, Member=1, Viewer=2 (lowest wins).
-Groups gate **capability** (what you may do); entitlements gate **access**
-(what the org has bought) — the two are independent axes.
+Four groups, defined in `amplify/shared/constants.ts` and mirrored in
+`config/site.ts`. Precedence: Operator=0, Admin=1, Member=2, Viewer=3
+(lowest wins). Groups gate **capability** (what you may do); entitlements
+gate **access** (what the org has bought) — the two are independent axes.
+
+### Operator — platform staff only
+
+Deliberately excluded from every org/vertical model rule (zero standing
+access to customer data). The **only** model that grants Operator anything
+is `OrgEntitlementOverride` (full CRUD) — the mechanism for pilots, comps,
+and offline check/PO purchases. Assigned manually, never by sign-up flows:
+
+```bash
+aws cognito-idp admin-add-user-to-group --user-pool-id <pool> \
+  --username <username-or-sub> --group-name Operator \
+  --profile <profile> --region <region>
+```
+
+(Or Cognito console → User pools → user → Add to group.) The operator
+must sign out/in afterwards to pick up the group claim.
 
 ### Admin — organization owner
 

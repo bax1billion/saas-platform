@@ -7,7 +7,7 @@ import * as appsync from 'aws-cdk-lib/aws-appsync';
 /**
  * Backend entitlement enforcement (docs/subscriptions-and-payments.md §6).
  *
- * Inserts three APPSYNC_JS pipeline functions — User → Organization →
+ * Inserts three APPSYNC_JS pipeline functions — User → operator override →
  * OrgSubscription + decision — into every gated model mutation, right
  * before the generated data resolver (so Cognito group auth has already
  * run). Reads are never gated. IAM callers bypass.
@@ -80,13 +80,21 @@ export function applyEntitlementEnforcement(
   };
 
   const userFn = makeFn('EntitlementUserFn', 'UserTable', code('user.js'));
-  const orgFn = makeFn('EntitlementOrgFn', 'OrganizationTable', code('org.js'));
+  const overrideFn = makeFn(
+    'EntitlementOverrideFn',
+    'OrgEntitlementOverrideTable',
+    code('override.js')
+  );
   const subFn = makeFn(
     'EntitlementSubscriptionFn',
     'OrgSubscriptionTable',
     code('subscription.js').replace('__FIELD_MODULE__', JSON.stringify(fieldModule))
   );
-  const inserted = [userFn.attrFunctionId, orgFn.attrFunctionId, subFn.attrFunctionId];
+  const inserted = [
+    userFn.attrFunctionId,
+    overrideFn.attrFunctionId,
+    subFn.attrFunctionId,
+  ];
 
   const gatedFields: string[] = [];
   for (const field of Object.keys(fieldModule)) {
