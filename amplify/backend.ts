@@ -12,7 +12,12 @@ import { createCheckoutSessionFunction } from './functions/create-checkout-sessi
 import { createOrganizationFunction } from './functions/create-organization/resource';
 import { getMediaUrlsFunction } from './functions/get-media-urls/resource';
 import { postConfirmation } from './auth/post-confirmation/resource';
-import { verticalStreamTables, verticalModuleTables } from './data/vertical';
+import {
+  verticalStreamTables,
+  verticalModuleTables,
+  verticalModuleMutations,
+  verticalFunctions,
+} from './data/vertical';
 import { createMediaCdn } from './custom/media-cdn/resource';
 import { applyEntitlementEnforcement } from './data/entitlements/index';
 import * as iam from 'aws-cdk-lib/aws-iam';
@@ -37,6 +42,8 @@ const backend = defineBackend({
   createCheckoutSessionFunction,
   createOrganizationFunction,
   getMediaUrlsFunction,
+  // Module-owned command handlers (amplify/data/vertical.ts)
+  ...verticalFunctions,
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -161,6 +168,14 @@ const allTriggerFunctions = [
   backend.createCheckoutSessionFunction,
   backend.createOrganizationFunction,
   backend.getMediaUrlsFunction,
+  // Module command handlers. Their keys come from the vertical seam, so
+  // they're dynamic by construction and the backend object has no literal
+  // key type to index with — they resolve to the same function-resource
+  // shape as the foundation triggers above.
+  ...Object.keys(verticalFunctions).map(
+    (key) =>
+      (backend as unknown as Record<string, typeof backend.eventLoggerFunction>)[key]
+  ),
 ];
 
 // The GraphQL hostname is its own identifier — NOT the apiId. Building
@@ -219,6 +234,7 @@ createOrgLambda.addToRolePolicy(
 
 const entitlements = applyEntitlementEnforcement(backend.data.resources, {
   moduleTables: verticalModuleTables,
+  moduleMutations: verticalModuleMutations,
   subscriptionTables: ['Site'],
 });
 console.log(

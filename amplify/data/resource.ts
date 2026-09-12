@@ -12,6 +12,7 @@ import {
   verticalModels,
   verticalEntityTypes,
   verticalEventActions,
+  verticalFunctions,
 } from './vertical';
 
 /**
@@ -427,6 +428,10 @@ const schema = a
       .resource(createOrganizationFunction)
       .to(['query', 'mutate']),
     allow.resource(getMediaUrlsFunction).to(['query']),
+    // Module command handlers (amplify/data/vertical.ts → verticalFunctions)
+    ...Object.values(verticalFunctions).map((fn) =>
+      allow.resource(fn).to(['query', 'mutate'])
+    ),
   ]);
 
 export type Schema = ClientSchema<typeof schema>;
