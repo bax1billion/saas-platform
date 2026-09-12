@@ -1,4 +1,5 @@
 // When adding models, start with: import { a } from '@aws-amplify/backend';
+import type { defineFunction } from '@aws-amplify/backend';
 
 /**
  * Vertical schema seam — the per-product edit point for domain models.
@@ -88,3 +89,33 @@ export const verticalModulePriceSecrets: Record<string, string> = {};
  * active subscription AND the module (amplify/data/entitlements).
  */
 export const verticalModuleTables: Record<string, string[]> = {};
+
+/**
+ * Module id → its custom (command) mutations. Gated exactly like the
+ * generated model mutations: subscription AND module. A module whose
+ * Lambda writes over IAM would otherwise let a locked org in through the
+ * side door — `allow.resource` bypasses model and field rules, so the gate
+ * has to sit on the command field itself.
+ *
+ *   export const verticalModuleMutations = {
+ *     widgets: ['requestWidget', 'approveWidget'],
+ *   };
+ */
+export const verticalModuleMutations: Record<string, string[]> = {};
+
+/**
+ * Module-owned Lambda functions, keyed by backend construct name. Spread
+ * into defineBackend() and granted on the schema (allow.resource) by the
+ * foundation files, so a module adds a command handler without editing
+ * amplify/backend.ts or amplify/data/resource.ts. Each function gets
+ * GRAPHQL_ENDPOINT and the appsync:GraphQL policy like the foundation
+ * trigger functions.
+ *
+ * Such a handler runs as a transformer admin role and bypasses every model
+ * and field rule, so it MUST enforce tenancy itself: load the row and
+ * compare its `orgId` with the caller's before acting on it. See
+ * docs/core-data-model.md §2.5.
+ *
+ *   export const verticalFunctions = { widgetCommand: widgetCommandFunction };
+ */
+export const verticalFunctions: Record<string, ReturnType<typeof defineFunction>> = {};

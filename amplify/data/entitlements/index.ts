@@ -15,6 +15,9 @@ import * as appsync from 'aws-cdk-lib/aws-appsync';
  * Gated fields:
  *   - `create|update|delete<Model>` for each table in `moduleTables`
  *     → requires an active subscription AND that module
+ *   - each custom mutation named in `moduleMutations`
+ *     → requires an active subscription AND that module (a Lambda-backed
+ *       command writes over IAM, so the gate must sit on the command)
  *   - the same three for each table in `subscriptionTables`
  *     → requires an active subscription only
  */
@@ -22,6 +25,8 @@ import * as appsync from 'aws-cdk-lib/aws-appsync';
 export interface EntitlementEnforcementOptions {
   /** module id → model names owned by that module. */
   moduleTables: Record<string, string[]>;
+  /** module id → custom mutation field names owned by that module. */
+  moduleMutations?: Record<string, string[]>;
   /** Foundation org-scoped models that only need an active subscription. */
   subscriptionTables: string[];
 }
@@ -52,6 +57,9 @@ export function applyEntitlementEnforcement(
     for (const model of models) {
       for (const p of MUTATION_PREFIXES) fieldModule[`${p}${model}`] = moduleId;
     }
+  }
+  for (const [moduleId, fields] of Object.entries(options.moduleMutations ?? {})) {
+    for (const field of fields) fieldModule[field] = moduleId;
   }
   for (const model of options.subscriptionTables) {
     for (const p of MUTATION_PREFIXES) fieldModule[`${p}${model}`] = null;
