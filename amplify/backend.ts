@@ -14,6 +14,7 @@ import { getMediaUrlsFunction } from './functions/get-media-urls/resource';
 import { postConfirmation } from './auth/post-confirmation/resource';
 import {
   verticalStreamTables,
+  verticalStreamConsumers,
   verticalModuleTables,
   verticalModuleMutations,
   verticalFunctions,
@@ -50,8 +51,9 @@ const backend = defineBackend({
 // #1 DynamoDB Streams → Lambda triggers
 // Single source of truth: table name → consuming Lambdas. Streams are
 // enabled on exactly these tables and EventSourceMappings derived from
-// the same map. Verticals add their tables here (typically with at least
-// the event-logger for the audit trail).
+// the same map. Verticals never edit this file: they contribute through
+// `verticalStreamTables` (audit trail) and `verticalStreamConsumers`
+// (module business-logic handlers) in amplify/data/vertical.ts.
 // ═══════════════════════════════════════════════════════════════════
 
 const { amplifyDynamoDbTables } = backend.data.resources.cfnResources;
@@ -70,11 +72,39 @@ const streamEventSources: Record<string, lambda.IFunction[]> = {
     backend.eventLoggerFunction.resources.lambda,
     backend.newsletterSubscriberTriggerFunction.resources.lambda,
   ],
-  // Vertical tables (amplify/data/vertical.ts) → audit trail
+  // Vertical tables (amplify/data/vertical.ts) → audit trail, plus any
+  // module handlers that consume the same stream. A table may appear in
+  // verticalStreamConsumers WITHOUT being in verticalStreamTables: that
+  // streams it to the module's handler but keeps it out of the audit log
+  // (a model whose contents must never reach EventLog).
   ...Object.fromEntries(
-    verticalStreamTables.map((t) => [
-      t,
-      [backend.eventLoggerFunction.resources.lambda],
+    [
+      ...new Set([
+        ...verticalStreamTables,
+        ...Object.keys(verticalStreamConsumers),
+      ]),
+    ].map((table) => [
+      table,
+      [
+        ...(verticalStreamTables.includes(table)
+          ? [backend.eventLoggerFunction.resources.lambda]
+          : []),
+        ...(verticalStreamConsumers[table] ?? []).map((key) => {
+          const fn = (
+            backend as unknown as Record<
+              string,
+              typeof backend.eventLoggerFunction | undefined
+            >
+          )[key];
+          if (!fn) {
+            throw new Error(
+              `verticalStreamConsumers: "${table}" names function "${key}", ` +
+                `which is not a key of verticalFunctions.`
+            );
+          }
+          return fn.resources.lambda;
+        }),
+      ],
     ])
   ),
 };

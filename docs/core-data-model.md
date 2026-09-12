@@ -233,6 +233,18 @@ Sharp edges to respect:
    item, shares the model's GSI budget, and streams into `EventLog` with
    the rest of the row.
 
+**How those columns actually get written.** A field rule that grants no
+group a write states the restriction; it doesn't fill the column. The
+default way to fill it is a Lambda on the table's DynamoDB stream: the
+client writes the part it owns through a plain model mutation, the stream
+handler reacts and writes the server-owned columns over IAM. That keeps
+tenancy declarative — the client's write went through the model's own
+rules — and gets at-least-once delivery with retries. A synchronous
+command mutation is the exception, for when a request has to be rejected
+before anything is written; it bypasses model *and* field rules and must
+re-check tenancy by hand. See `docs/modules.md` → "Backend business
+logic".
+
 ### 2.6 Stripe-mirroring conventions
 
 Stripe is always the source of truth for billing; the database holds a local

@@ -72,6 +72,29 @@ export const verticalOrgSeeds: Array<Record<string, unknown>> = [];
 export const verticalStreamTables: string[] = [];
 
 /**
+ * Table name → the `verticalFunctions` keys whose Lambdas consume that
+ * table's DynamoDB stream. **This is the preferred place for a module's
+ * server-authoritative business logic** — see docs/modules.md → "Backend
+ * business logic".
+ *
+ * The client writes what it owns through plain AppSync model mutations;
+ * field-level authorization (docs/core-data-model.md §2.5) keeps the
+ * server-owned columns write-to-nobody; the handler here reacts to the
+ * write and fills those columns over IAM. Tenancy stays declarative, and
+ * the stream gives you at-least-once delivery with retries instead of a
+ * hand-rolled compensator.
+ *
+ * Listing a table here enables its stream even if the table is NOT in
+ * `verticalStreamTables` — so a model that must never reach the audit log
+ * can still drive a handler.
+ *
+ *   export const verticalStreamConsumers = {
+ *     WidgetRequest: ['widgetDecision'],
+ *   };
+ */
+export const verticalStreamConsumers: Record<string, string[]> = {};
+
+/**
  * Add-on module billing: module id (config/modules.ts) → Amplify secret
  * name holding that module's Stripe Price ID. Convention:
  * `STRIPE_PRICE_MODULE_<ID>` (uppercase, dashes → underscores). Consumed by
