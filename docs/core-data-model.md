@@ -232,24 +232,32 @@ Sharp edges to respect:
 4. Field rules don't change storage: the field still lives on the same
    item, shares the model's GSI budget, and streams into `EventLog` with
    the rest of the row.
-5. **Once a model has any field rule, every `required()` field on that
-   model needs one too**, or synth fails with `InvalidDirectiveError:
-   When using field-level authorization rules you need to add rules to
-   all of the model's required fields`. Restate the model tier on each
-   required field — a one-line helper per tier keeps this readable. The
-   sketch above is illustrative only: it would fail this rule as written,
-   because `orgId` and `body` carry no field rule. The practical
-   consequence is that adopting field rules on a model is not an
-   incremental edit; it is a change to every required column at once.
-6. **An owner field rule (`ownerDefinedIn`, `owner`) adds an owner read
-   role to the whole model**, so rule 5 then requires every required
-   field to grant that owner read as well. Budget for that before mixing
-   owner-writable columns into a group-tiered model; the alternative is a
-   satellite owner-only model, which is the split this pattern exists to
-   avoid. The owner identity must be a **stored Cognito sub** — `User.id`
-   is a random UUID and will never match the token claim, so the sub has
-   to be denormalized onto the model if the identity lives elsewhere.
-   Group rules cost none of this: membership is already a token claim.
+5. **Narrowing *read* on a `required()` field is what the transformer
+   rejects** — not the absence of a field rule. The error reads
+   `InvalidDirectiveError: When using field-level authorization rules you
+   need to add rules to all of the model's required fields with at least
+   read permissions`, which overstates it. The check
+   (`graphql-auth-transformer`) fires only when a **non-null** field ends
+   up readable by *fewer* roles than the model itself, and only while
+   subscriptions are enabled for that model — otherwise a subscription
+   payload would carry `null` in a non-null field and break the response
+   contract. The error names the offending fields; widen read on those,
+   make them nullable, or turn subscriptions off for the model.
+6. **Restating the model's own tier on a required field is a no-op.** It
+   grants exactly what the field already inherits, so it neither causes
+   nor prevents the error above. Add a field rule where a column must
+   genuinely *differ* from the model — a server-only column that no group
+   may write, an owner-writable one — and nowhere else. Padding every
+   required column with a mirror of the model tier is cargo cult: it
+   reads like enforcement and does nothing.
+
+   The owner case is the one most likely to trip rule 5, because an owner
+   rule introduces a read role the required fields may not grant. Verify
+   against `npm run check:backend` rather than assuming — and note that
+   an owner identity must be a **stored Cognito sub**: `User.id` is a
+   random UUID and will never match the token claim, so the sub has to be
+   denormalized onto the model when the identity lives elsewhere. Group
+   rules cost none of this; membership is already a token claim.
 
 Functions granted with `allow.resource(fn)` are transformer *admin roles*
 and bypass model and field rules entirely over IAM. That is what makes a
