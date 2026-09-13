@@ -259,6 +259,25 @@ Sharp edges to respect:
    denormalized onto the model when the identity lives elsewhere. Group
    rules cost none of this; membership is already a token claim.
 
+> **Confidence note (2026-09-12).** The mechanism above is read from
+> `graphql-auth-transformer` source, not from a reproduction. Five
+> configurations were tried against `npm run check:backend` — a read-only
+> field rule, a narrower write rule, an `ownerDefinedIn` field rule, a
+> required field with a deliberately narrowed read grant, and a live
+> vertical schema with 17 required-field rules stripped — and **none of
+> them triggered the error**. The fourth should have, by the reading
+> above; there is a nuance in `getReadRolesForField` still unaccounted
+> for (`readRoles` is built with `new Set(...map(...))`, which spreads the
+> array as constructor arguments and so appears to use only the first read
+> operation's roles, which may mask the mismatch).
+>
+> What *is* verified is the negative: a restatement of the model's own
+> tier is unnecessary, and a schema carrying 17 of them synthesizes
+> identically without. Treat the mechanism as the best current
+> explanation rather than settled behaviour — if you hit the error, it
+> names the offending columns, so fix those rather than generalising from
+> this paragraph. If you do reproduce it, record the shape here.
+
 Functions granted with `allow.resource(fn)` are transformer *admin roles*
 and bypass model and field rules entirely over IAM. That is what makes a
 "write for nobody" column writable by the workflow Lambda — and it is why
