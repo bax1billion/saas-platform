@@ -93,6 +93,30 @@ aws cognito-idp admin-add-user-to-group --user-pool-id <pool> \
 (Or Cognito console → User pools → user → Add to group.) The operator
 must sign out/in afterwards to pick up the group claim.
 
+**If that command is denied in your sandbox**, check your own permission
+set rather than the pool. The AWS managed policy
+`AmplifyBackendDeployFullAccess` grants no `cognito-idp` actions at all, so
+a developer holding only that policy can deploy the stack but cannot assign
+the group — and the console fails for the same reason, since it uses the
+same credentials. Without an operator you cannot write
+`OrgEntitlementOverride`, and without that you cannot unlock an add-on
+module in a sandbox that has no Stripe subscription.
+
+Two ways out, in order of preference:
+
+1. **Add the permission.** Grant `cognito-idp:AdminAddUserToGroup` on the
+   sandbox user pool to your role. This solves an IAM problem with IAM and
+   keeps identity bootstrapping out of application code.
+2. **Route it through the deploy.** `amplify/backend.ts` §8 reads
+   `amplify/.sandbox-operators` (gitignored; one username or sub per line,
+   `#` comments) and adds each to `Operator` at deploy time. This works
+   because `AmplifyBackendDeployFullAccess` *does* grant `sts:AssumeRole` on
+   `cdk-*-deploy-role-*`, so CloudFormation runs under the CDK execution
+   role — a broader principal than your CLI session. It is gated on the
+   backend type being `sandbox` **and** the file existing, so pipelines and
+   shared environments are unaffected. Note it has no `onDelete`: removing a
+   name does not revoke the group.
+
 ### Admin — organization owner
 
 | Resource | Permissions |

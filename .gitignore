@@ -49,3 +49,6 @@ amplifyconfiguration*
 # local working files — never shipped (see docs/ROADMAP.md for the committed roadmap)
 WHITE_LABEL_PLAN.md
 docs/playbooks/vertical-ideas.md
+
+# personal sandbox operator bootstrap (amplify/backend.ts)
+amplify/.sandbox-operators

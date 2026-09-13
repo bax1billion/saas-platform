@@ -28,6 +28,7 @@ import * as sns from 'aws-cdk-lib/aws-sns';
 import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import { CfnOutput, CfnResource, Stack } from 'aws-cdk-lib';
 import * as cr from 'aws-cdk-lib/custom-resources';
+import { existsSync, readFileSync } from 'node:fs';
 
 const backend = defineBackend({
   auth,
@@ -465,3 +466,73 @@ postConfirmationLambda.addToRolePolicy(
     ],
   })
 );
+
+// ═══════════════════════════════════════════════════════════════════
+// #8 Sandbox-only: bootstrap Operator group members
+// ═══════════════════════════════════════════════════════════════════
+//
+// `Operator` is assigned by hand (docs/onboarding-and-permissions.md) and is
+// the only group that can write OrgEntitlementOverride — which, without a
+// Stripe subscription, is the only way to unlock an add-on module. So a
+// sandbox with no operator cannot exercise add-on modules at all.
+//
+// The obstacle is the DEVELOPER's credentials, not the deploy. The AWS
+// managed policy `AmplifyBackendDeployFullAccess` contains no `cognito-idp`
+// actions at all, so a developer holding only that permission set cannot run
+// `aws cognito-idp admin-add-user-to-group`, and the Cognito console fails
+// for the same reason. What that policy does grant is `sts:AssumeRole` on
+// `cdk-*-deploy-role-*` — so CloudFormation executes under the CDK execution
+// role, a broader principal. Routing the group assignment through the deploy
+// therefore succeeds where the same call from the CLI would not.
+//
+// PREFER FIXING THE PERMISSION SET. If you can add
+// `cognito-idp:AdminAddUserToGroup` on the sandbox user pool to the
+// developer's role, do that instead: it solves an IAM problem with IAM and
+// keeps identity bootstrapping out of application code. This construct is
+// the fallback for when that is not available to you.
+//
+// Reads Cognito usernames (email or sub, one per line, `#` comments) from
+// the gitignored `amplify/.sandbox-operators`. Runs only when the backend
+// type is `sandbox` AND the file exists, so pipelines and shared
+// environments are untouched.
+//
+// Two behaviours to know, both acceptable for a sandbox and neither worth
+// discovering later:
+//   - There is no onDelete. Removing a name from the file (or deleting it)
+//     does not remove that user from the group; revoke by hand.
+//   - Resources are keyed by list position (`SandboxOperator<n>`), so
+//     reordering the file reassigns usernames across logical ids. onUpdate
+//     adds the new username and does not remove the previous one.
+const sandboxOperatorsFile = new URL('./.sandbox-operators', import.meta.url);
+if (
+  backend.stack.node.tryGetContext('amplify-backend-type') === 'sandbox' &&
+  existsSync(sandboxOperatorsFile)
+) {
+  const usernames = readFileSync(sandboxOperatorsFile, 'utf8')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('#'));
+  usernames.forEach((username, i) => {
+    const call: cr.AwsSdkCall = {
+      service: 'CognitoIdentityServiceProvider',
+      action: 'adminAddUserToGroup',
+      parameters: {
+        UserPoolId: backend.auth.resources.userPool.userPoolId,
+        GroupName: 'Operator',
+        Username: username,
+      },
+      physicalResourceId: cr.PhysicalResourceId.of(`sandbox-operator-${username}`),
+    };
+    new cr.AwsCustomResource(backend.stack, `SandboxOperator${i}`, {
+      onCreate: call,
+      onUpdate: call,
+      policy: cr.AwsCustomResourcePolicy.fromStatements([
+        new iam.PolicyStatement({
+          actions: ['cognito-idp:AdminAddUserToGroup'],
+          resources: [backend.auth.resources.userPool.userPoolArn],
+        }),
+      ]),
+    });
+  });
+  console.log(`Sandbox operator bootstrap: ${usernames.length} user(s)`);
+}
