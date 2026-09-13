@@ -5,7 +5,7 @@ import { ArrowRight, Lock } from "lucide-react";
 import { useAuth } from "@/app/components/AuthContext";
 import { useEntitlements } from "@/app/components/EntitlementsContext";
 import ModuleIcon from "@/app/components/ModuleIcon";
-import { activeModules, modules, availabilityLabel } from "@/lib/modules";
+import { activeModules, modules, availabilityLabel, isPreview } from "@/lib/modules";
 import { tiers } from "@/config/pricing";
 import { siteConfig } from "@/config/site";
 
@@ -126,7 +126,12 @@ export default function DashboardPage() {
                       {m.description}
                     </p>
                     <span className="mt-3 text-sm font-semibold text-primary group-hover:underline">
-                      {entitled ? "Open" : "Add module"} →
+                      {entitled
+                        ? "Open"
+                        : isPreview(m)
+                          ? "See what's coming"
+                          : "Add module"}{" "}
+                      →
                     </span>
                   </Link>
                 );

@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Lock } from "lucide-react";
-import { getModule, availabilityLabel, type ModuleDef } from "@/lib/modules";
+import { getModule, availabilityLabel, isPreview, type ModuleDef } from "@/lib/modules";
 import { cn } from "@/lib/utils";
 import { useEntitlements } from "./EntitlementsContext";
 import ModuleIcon from "./ModuleIcon";
@@ -51,13 +51,16 @@ function ModuleLocked({ module }: { module: ModuleDef }) {
           ))}
         </ul>
         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
-          <Link
-            href={`/subscribe?module=${module.id}`}
-            className="inline-flex items-center justify-center rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Add {module.name}
-            {module.price ? ` · ${module.price}/mo` : ""}
-          </Link>
+          {/* A preview module has no price behind it yet — don't offer to sell it. */}
+          {!isPreview(module) && (
+            <Link
+              href={`/subscribe?module=${module.id}`}
+              className="inline-flex items-center justify-center rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              Add {module.name}
+              {module.price ? ` · ${module.price}/mo` : ""}
+            </Link>
+          )}
           <Link
             href={`/modules/${module.id}`}
             className="inline-flex items-center justify-center rounded-lg border border-border px-6 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted"
