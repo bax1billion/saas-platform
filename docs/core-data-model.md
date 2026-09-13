@@ -232,18 +232,69 @@ Sharp edges to respect:
 4. Field rules don't change storage: the field still lives on the same
    item, shares the model's GSI budget, and streams into `EventLog` with
    the rest of the row.
+5. **Narrowing *read* on a `required()` field is what the transformer
+   rejects** — not the absence of a field rule. The error reads
+   `InvalidDirectiveError: When using field-level authorization rules you
+   need to add rules to all of the model's required fields with at least
+   read permissions`, which overstates it. The check
+   (`graphql-auth-transformer`) fires only when a **non-null** field ends
+   up readable by *fewer* roles than the model itself, and only while
+   subscriptions are enabled for that model — otherwise a subscription
+   payload would carry `null` in a non-null field and break the response
+   contract. The error names the offending fields; widen read on those,
+   make them nullable, or turn subscriptions off for the model.
+6. **Restating the model's own tier on a required field is a no-op.** It
+   grants exactly what the field already inherits, so it neither causes
+   nor prevents the error above. Add a field rule where a column must
+   genuinely *differ* from the model — a server-only column that no group
+   may write, an owner-writable one — and nowhere else. Padding every
+   required column with a mirror of the model tier is cargo cult: it
+   reads like enforcement and does nothing.
+
+   The owner case is the one most likely to trip rule 5, because an owner
+   rule introduces a read role the required fields may not grant. Verify
+   against `npm run check:backend` rather than assuming — and note that
+   an owner identity must be a **stored Cognito sub**: `User.id` is a
+   random UUID and will never match the token claim, so the sub has to be
+   denormalized onto the model when the identity lives elsewhere. Group
+   rules cost none of this; membership is already a token claim.
+
+> **Confidence note (2026-09-12).** The mechanism above is read from
+> `graphql-auth-transformer` source, not from a reproduction. Five
+> configurations were tried against `npm run check:backend` — a read-only
+> field rule, a narrower write rule, an `ownerDefinedIn` field rule, a
+> required field with a deliberately narrowed read grant, and a live
+> vertical schema with 17 required-field rules stripped — and **none of
+> them triggered the error**. The fourth should have, by the reading
+> above; there is a nuance in `getReadRolesForField` still unaccounted
+> for (`readRoles` is built with `new Set(...map(...))`, which spreads the
+> array as constructor arguments and so appears to use only the first read
+> operation's roles, which may mask the mismatch).
+>
+> What *is* verified is the negative: a restatement of the model's own
+> tier is unnecessary, and a schema carrying 17 of them synthesizes
+> identically without. Treat the mechanism as the best current
+> explanation rather than settled behaviour — if you hit the error, it
+> names the offending columns, so fix those rather than generalising from
+> this paragraph. If you do reproduce it, record the shape here.
+
+Functions granted with `allow.resource(fn)` are transformer *admin roles*
+and bypass model and field rules entirely over IAM. That is what makes a
+"write for nobody" column writable by the workflow Lambda — and it is why
+such a Lambda must check tenancy itself, loading the row and comparing its
+`orgId` with the caller's before acting on it.
 
 **How those columns actually get written.** A field rule that grants no
 group a write states the restriction; it doesn't fill the column. The
-default way to fill it is a Lambda on the table's DynamoDB stream: the
-client writes the part it owns through a plain model mutation, the stream
-handler reacts and writes the server-owned columns over IAM. That keeps
-tenancy declarative — the client's write went through the model's own
-rules — and gets at-least-once delivery with retries. A synchronous
-command mutation is the exception, for when a request has to be rejected
-before anything is written; it bypasses model *and* field rules and must
-re-check tenancy by hand. See `docs/modules.md` → "Backend business
-logic".
+default way to fill it is a Lambda on the table's DynamoDB stream
+(`verticalStreamConsumers`): the client writes the part it owns through a
+plain model mutation, the stream handler reacts and writes the
+server-owned columns over IAM. Tenancy stays declarative — the client's
+write went through the model's own rules — and stream delivery is
+at-least-once with retries. A synchronous command mutation is the
+exception, for when a request has to be rejected before anything is
+written; it re-checks tenancy by hand and owns its own cleanup on partial
+failure. See `docs/modules.md` → "Backend business logic".
 
 ### 2.6 Stripe-mirroring conventions
 
