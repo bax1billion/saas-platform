@@ -232,18 +232,42 @@ Sharp edges to respect:
 4. Field rules don't change storage: the field still lives on the same
    item, shares the model's GSI budget, and streams into `EventLog` with
    the rest of the row.
+5. **Once a model has any field rule, every `required()` field on that
+   model needs one too**, or synth fails with `InvalidDirectiveError:
+   When using field-level authorization rules you need to add rules to
+   all of the model's required fields`. Restate the model tier on each
+   required field — a one-line helper per tier keeps this readable. The
+   sketch above is illustrative only: it would fail this rule as written,
+   because `orgId` and `body` carry no field rule. The practical
+   consequence is that adopting field rules on a model is not an
+   incremental edit; it is a change to every required column at once.
+6. **An owner field rule (`ownerDefinedIn`, `owner`) adds an owner read
+   role to the whole model**, so rule 5 then requires every required
+   field to grant that owner read as well. Budget for that before mixing
+   owner-writable columns into a group-tiered model; the alternative is a
+   satellite owner-only model, which is the split this pattern exists to
+   avoid. The owner identity must be a **stored Cognito sub** — `User.id`
+   is a random UUID and will never match the token claim, so the sub has
+   to be denormalized onto the model if the identity lives elsewhere.
+   Group rules cost none of this: membership is already a token claim.
+
+Functions granted with `allow.resource(fn)` are transformer *admin roles*
+and bypass model and field rules entirely over IAM. That is what makes a
+"write for nobody" column writable by the workflow Lambda — and it is why
+such a Lambda must check tenancy itself, loading the row and comparing its
+`orgId` with the caller's before acting on it.
 
 **How those columns actually get written.** A field rule that grants no
 group a write states the restriction; it doesn't fill the column. The
-default way to fill it is a Lambda on the table's DynamoDB stream: the
-client writes the part it owns through a plain model mutation, the stream
-handler reacts and writes the server-owned columns over IAM. That keeps
-tenancy declarative — the client's write went through the model's own
-rules — and gets at-least-once delivery with retries. A synchronous
-command mutation is the exception, for when a request has to be rejected
-before anything is written; it bypasses model *and* field rules and must
-re-check tenancy by hand. See `docs/modules.md` → "Backend business
-logic".
+default way to fill it is a Lambda on the table's DynamoDB stream
+(`verticalStreamConsumers`): the client writes the part it owns through a
+plain model mutation, the stream handler reacts and writes the
+server-owned columns over IAM. Tenancy stays declarative — the client's
+write went through the model's own rules — and stream delivery is
+at-least-once with retries. A synchronous command mutation is the
+exception, for when a request has to be rejected before anything is
+written; it re-checks tenancy by hand and owns its own cleanup on partial
+failure. See `docs/modules.md` → "Backend business logic".
 
 ### 2.6 Stripe-mirroring conventions
 
