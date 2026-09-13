@@ -7,7 +7,7 @@ import EarlyAccessModal from "@/app/components/EarlyAccessModal";
 import AuthModal from "@/app/components/AuthModal";
 import EarlyAccessButton from "@/app/components/EarlyAccessButton";
 import ModuleIcon from "@/app/components/ModuleIcon";
-import { modules, getModule, availabilityLabel } from "@/lib/modules";
+import { modules, getModule, availabilityLabel, isPreview } from "@/lib/modules";
 import { pageTitle, absoluteUrl } from "@/config/site";
 
 type Params = { id: string };
@@ -50,7 +50,8 @@ export default async function ModulePage({
   const m = getModule(id);
   if (!m) notFound();
 
-  const comingSoon = m.availability === "coming-soon";
+  // Preview modules ship routes but have no price yet — same soft CTA.
+  const comingSoon = m.availability === "coming-soon" || isPreview(m);
 
   return (
     <>

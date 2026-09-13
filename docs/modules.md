@@ -102,6 +102,26 @@ Within a module, gate on **scale**, not capability, exactly like tiers
 all of it. Extend `TierLimits` in `config/pricing.ts` with the module's
 countable resources if it needs caps.
 
+### Preview modules
+
+A module that ships routes before its Stripe Price exists is an add-on at
+`stage: "planned"` — `isPreview()` in `lib/modules/index.ts`. It appears in
+the app shell next to the modules an org owns and is grantable via an
+operator entitlement override (`OrgEntitlementOverride` — pilots, internal
+orgs, demos), but it is kept off every purchasing surface: `addonModules`
+excludes it, so it cannot be checked out from `/subscribe` or billing
+settings, and neither the locked panel nor the marketing page offers a buy
+button. Marketing still names it — the homepage pricing strip renders
+`marketedAddonModules`, where a preview shows a `Preview` badge in place of
+a price and links to its module page.
+
+Granting one is an operator action: `ModuleAccessCard` lists
+`marketedAddonModules` (previews tagged `Preview`), so an operator can comp
+an org into a preview from the UI even though nobody can buy it. Selling it
+is one edit — create the Stripe Product/Price, add the
+`STRIPE_PRICE_MODULE_<ID>` secret to `verticalModulePriceSecrets`, and move
+the module's `stage` to `beta`.
+
 ### Locked state
 
 `ModuleShell` renders an upsell panel instead of the module when the org is

@@ -1,5 +1,5 @@
 import { landing } from "@/config/landing";
-import { modules, availabilityLabel } from "@/lib/modules";
+import { modules, availabilityLabel, isPreview } from "@/lib/modules";
 import ModuleIcon from "./ModuleIcon";
 
 /**
@@ -23,7 +23,7 @@ export default function Modules() {
         </div>
         <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {modules.map((m) => {
-            const comingSoon = m.availability === "coming-soon";
+            const comingSoon = m.availability === "coming-soon" || isPreview(m);
             return (
               <a
                 key={m.id}

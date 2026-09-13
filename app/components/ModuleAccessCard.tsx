@@ -4,15 +4,15 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { ShieldCheck, Loader2 } from "lucide-react";
 import { getDataClient } from "@/lib/data-client";
-import { addonModules } from "@/lib/modules";
+import { marketedAddonModules, isPreview } from "@/lib/modules";
 import { useAuth } from "./AuthContext";
 import { useEntitlements } from "./EntitlementsContext";
 import ModuleIcon from "./ModuleIcon";
 
 /**
  * Platform-operator card managing the org's OrgEntitlementOverride —
- * pilots, comps, and offline purchases (checks/POs) where Stripe checkout
- * doesn't apply. Renders ONLY for members of the Operator Cognito group;
+ * pilots, comps, preview access, and offline purchases (checks/POs) where
+ * Stripe checkout doesn't apply. Renders ONLY for the Operator Cognito group;
  * org Admins neither see it nor can write the underlying model, so it is
  * production-safe by construction (docs/modules.md → Entitlements).
  *
@@ -142,12 +142,18 @@ export default function ModuleAccessCard() {
         </span>
       </label>
 
-      {addonModules.length > 0 && (
+      {/*
+        * Previews included on purpose: `marketedAddonModules` rather than
+        * `addonModules`, because comping an org into a module that has no
+        * Stripe Price yet is exactly what this card is for. Purchasing
+        * surfaces still use `addonModules` (docs/modules.md → Preview modules).
+        */}
+      {marketedAddonModules.length > 0 && (
         <div className="mt-4 space-y-2">
           <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Add-on modules
           </div>
-          {addonModules.map((m) => {
+          {marketedAddonModules.map((m) => {
             const viaSubscription = subscriptionModules.has(m.id);
             return (
               <label key={m.id} className="flex items-center gap-3 text-sm">
@@ -159,6 +165,11 @@ export default function ModuleAccessCard() {
                 />
                 <ModuleIcon module={m} size="sm" />
                 <span className="font-medium text-foreground">{m.name}</span>
+                {isPreview(m) && (
+                  <span className="shrink-0 rounded-full border border-foreground/10 bg-background px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground/60">
+                    Preview
+                  </span>
+                )}
                 {viaSubscription && (
                   <span className="text-xs text-muted-foreground">
                     licensed via subscription

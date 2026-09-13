@@ -1,6 +1,6 @@
 import { tiers } from "@/config/pricing";
 import { landing } from "@/config/landing";
-import { addonModules } from "@/lib/modules";
+import { marketedAddonModules, isPreview } from "@/lib/modules";
 import ModuleIcon from "./ModuleIcon";
 
 export default function Pricing() {
@@ -56,7 +56,7 @@ export default function Pricing() {
           ))}
         </div>
 
-        {addonModules.length > 0 && (
+        {marketedAddonModules.length > 0 && (
           <div className="mt-16">
             <h3 className="font-serif text-2xl font-bold text-foreground">
               {copy.addOnsHeadline}
@@ -65,7 +65,7 @@ export default function Pricing() {
               {copy.addOnsSubheadline}
             </p>
             <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {addonModules.map((m) => (
+              {marketedAddonModules.map((m) => (
                 <a
                   key={m.id}
                   href={`/modules/${m.id}`}
@@ -80,14 +80,25 @@ export default function Pricing() {
                       {m.tagline}
                     </div>
                   </div>
-                  {m.price && (
+                  {/*
+                    * Preview is checked BEFORE price: a module can carry a
+                    * display price before its Stripe Price exists, and
+                    * `addonModules` (what checkout offers) excludes previews
+                    * — so showing a rate here would publish one nothing can
+                    * honour. Same order as `availabilityLabel()`.
+                    */}
+                  {isPreview(m) ? (
+                    <span className="shrink-0 rounded-full border border-foreground/10 bg-background px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-foreground/60">
+                      Preview
+                    </span>
+                  ) : m.price ? (
                     <div className="text-right">
                       <div className="font-serif text-xl font-bold text-foreground">
                         {m.price}
                       </div>
                       <div className="text-xs text-foreground/50">/mo</div>
                     </div>
-                  )}
+                  ) : null}
                 </a>
               ))}
             </div>
