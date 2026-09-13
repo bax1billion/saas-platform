@@ -188,6 +188,43 @@ withdraw this" when `state` is write-to-nobody — give the client an intent
 column it does own (`requestedState`) and let the handler reconcile it into
 `state`. Desired-state versus actual, rather than a command.
 
+### The field written is the authority
+
+**A DynamoDB stream record carries no caller identity.** It has
+`NewImage`, `OldImage` and `Keys` — nothing about who made the write. A
+handler therefore cannot ask "was this person an Admin?" or "do they own
+this row?" after the fact.
+
+The way through is to **encode the authority in *which* field was written**
+and let field-level authorization decide who may write each one. The
+handler reads which column moved and infers the authority from that,
+because AppSync already refused the write otherwise.
+
+```ts
+// One transition, two doors — the door proves the authority.
+approveIntent:    a.string().authorization(a => [        // Admin only
+  a.group('Admin').to(['create', 'read', 'update']),
+  a.groups(['Member', 'Viewer']).to(['read']),
+]),
+withdrawRequested: a.boolean().authorization(a => [      // row owner only
+  a.ownerDefinedIn('ownerSub').to(['read', 'update']),
+  a.groups(['Admin', 'Member', 'Viewer']).to(['read']),
+]),
+```
+
+The same trick covers "acting on someone else's behalf": make the
+`onBehalfOfMemberId` column Admin-writable, leave it absent for a
+self-service write, and the handler knows which it is.
+
+**Row-level authority costs more than group-level.** Group rules
+(`Admin`, `Member`) are free — they're claims in the token. An owner rule
+is not: `allow.ownerDefinedIn('ownerSub')` requires the Cognito sub stored
+on the row (denormalized if the identity lives on another model), and it
+adds an owner *role* to the whole model — so every `required()` field must
+then restate an owner read grant (`docs/core-data-model.md` §2.5). Budget
+for that before reaching for it, and prefer expressing a transition in
+group terms when the domain allows.
+
 ### The exception: a command mutation
 
 A custom mutation backed by a Lambda (`verticalModuleMutations` +
