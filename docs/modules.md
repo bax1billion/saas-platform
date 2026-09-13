@@ -249,6 +249,39 @@ Everything else about a command is a cost you take on:
 If you reach for a command, say in the module doc why the stream shape
 didn't fit.
 
+### Inbound HTTP answers a different question
+
+A Lambda Function URL or API Gateway route is a third shape, but it is not
+a third option for the same decision. Streams versus commands is about
+*who owns a write*. Inbound HTTP is about **whether the caller can hold a
+Cognito token at all**.
+
+| The caller is | Use |
+|---|---|
+| Your own signed-in user | AppSync — stream handler, or a command for the reject-before-write case |
+| A third-party service (webhook, partner system, device) | Inbound HTTP |
+| Nobody yet — the request happens before sign-up completes | Inbound HTTP |
+
+**It is not an escape hatch for logic that feels awkward in GraphQL.**
+Going around AppSync costs you both of the things the platform enforces
+declaratively: Cognito group rules, and entitlement enforcement via
+`verticalModuleTables` / `verticalModuleMutations`. Both would have to be
+re-implemented inside the handler, which is a new place to forget them. If
+the caller holds a token, the answer is AppSync — even when the write is
+unusual.
+
+An endpoint a third party can reach is unauthenticated by construction, so
+it authenticates the **payload** instead: verify the provider's signature
+or a shared secret before trusting any field on the request.
+
+There is one instance today and no vertical seam for it — the Stripe
+webhook Function URL in `amplify/backend.ts` (`authType: NONE`, signature
+verified in the handler). A module that needs its own inbound endpoint
+should raise it rather than adding a second bespoke block, so the
+Function-URL-versus-API-Gateway choice gets made once against a real
+caller: API Gateway is what buys a custom domain, WAF, throttling, request
+validation and API-key usage plans, and a Function URL buys none of them.
+
 ## Checklist for a new module
 
 1. `modules/<id>/module.ts` — write the ModuleDef; add the accent token to
