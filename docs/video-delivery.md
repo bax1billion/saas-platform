@@ -213,6 +213,10 @@ been faster.
   exactly this) and `useAccelerateEndpoint: true` in the vertical's
   `uploadData` call **[confirmed]**. Amplify's declarative storage auth
   (`allow.authenticated` on `uploads/{entity_id}/*`) is untouched.
+  Implemented as an opt-in synth flag that also publishes the setting to
+  `amplify_outputs.json` (see §7 P0), because a client hardcoding
+  `useAccelerateEndpoint: true` against a bucket without acceleration
+  fails every upload.
 - Field uploads are multi-GB video files — the S3TA case, not the
   CloudFront-PUT case.
 - Uploading through CloudFront would mean re-implementing auth in a
@@ -324,9 +328,15 @@ The always-on cost is zero: no Fargate, no MediaPackage, no IVS channel.
 - Verify `uploadData` cross-reload resume and document the result here.
 - Verticals: expose upload queue/progress/retry; upload files in parallel
   (bounded); never block the tab on an in-flight upload.
-- Enable **S3TA** (bucket + `useAccelerateEndpoint`) after confirming the
-  bucket name; measure with AWS's speed-comparison tool from a phone on
-  LTE.
+- ✅ **S3TA is opt-in per environment** (`backend.ts` #4c):
+  `STORAGE_TRANSFER_ACCELERATION=1` at synth enables the bucket's
+  accelerate endpoint and writes `custom.storageTransferAcceleration`
+  into `amplify_outputs.json`. Vertical upload helpers read that flag for
+  `useAccelerateEndpoint`, so client and bucket cannot disagree, and
+  should fall back to the regional endpoint if the accelerate request
+  fails (`isAccelerationError`-style check on the first failure). Still
+  per environment: confirm the bucket name has no periods, turn it on,
+  and measure with AWS's speed-comparison tool from a phone on LTE.
 
 **P1 — direct original delivery + ingest hash:**
 
