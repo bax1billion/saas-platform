@@ -23,6 +23,7 @@ import { createMediaCdn } from './custom/media-cdn/resource';
 import { applyEntitlementEnforcement } from './data/entitlements/index';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as s3 from 'aws-cdk-lib/aws-s3';
 import { StreamViewType } from 'aws-cdk-lib/aws-dynamodb';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
@@ -360,6 +361,27 @@ const s3Notifications = new cr.AwsCustomResource(
 
 // Ensure Lambda Permission exists before S3 validates the notification
 s3Notifications.node.addDependency(s3InvokePermission);
+
+// ═══════════════════════════════════════════════════════════════════
+// #4c S3 Transfer Acceleration (docs/video-delivery.md §3)
+// Opt-in per environment at synth: STORAGE_TRANSFER_ACCELERATION=1 turns
+// the bucket's accelerate endpoint on ($0.04/GB in; only billed when it
+// was faster) and advertises the fact through amplify_outputs.json
+// `custom.storageTransferAcceleration`, which upload helpers read — one
+// source of truth, so a client never targets an accelerate endpoint the
+// bucket doesn't have. Precondition: bucket name without periods
+// (Amplify's generated names comply).
+// ═══════════════════════════════════════════════════════════════════
+
+const transferAcceleration = process.env.STORAGE_TRANSFER_ACCELERATION === '1';
+if (transferAcceleration) {
+  (bucket.node.defaultChild as s3.CfnBucket).accelerateConfiguration = {
+    accelerationStatus: 'Enabled',
+  };
+}
+backend.addOutput({
+  custom: { storageTransferAcceleration: transferAcceleration },
+});
 
 // ═══════════════════════════════════════════════════════════════════
 // #4b Media CDN (docs/image-delivery.md)
