@@ -13,7 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { siteConfig } from "@/config/site";
-import { activeModules, getModuleByPath } from "@/lib/modules";
+import { activeModules, getModuleByPath, type ModuleDef } from "@/lib/modules";
 import { cn } from "@/lib/utils";
 import { useAuth } from "./AuthContext";
 import { useEntitlements } from "./EntitlementsContext";
@@ -45,6 +45,25 @@ function NavLink({ href, active, children, onClick }: NavLinkProps) {
     </Link>
   );
 }
+
+/**
+ * Sidebar sections for the module lineup: one per `ModuleDef.group` in
+ * registry order (ungrouped modules fall under "Modules"). A product with a
+ * handful of modules and no groups gets the single "Modules" section.
+ */
+const moduleGroups: [string, ModuleDef[]][] = (() => {
+  const order: string[] = [];
+  const byGroup = new Map<string, ModuleDef[]>();
+  for (const m of activeModules) {
+    const g = m.group ?? "Modules";
+    if (!byGroup.has(g)) {
+      byGroup.set(g, []);
+      order.push(g);
+    }
+    byGroup.get(g)!.push(m);
+  }
+  return order.map((g) => [g, byGroup.get(g)!]);
+})();
 
 function SectionLabel({ children }: { children: ReactNode }) {
   return (
@@ -113,10 +132,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
           Dashboard
         </NavLink>
 
-        {activeModules.length > 0 && (
-          <>
-            <SectionLabel>Modules</SectionLabel>
-            {activeModules.map((m) => {
+        {moduleGroups.map(([label, mods]) => (
+          <div key={label}>
+            <SectionLabel>{label}</SectionLabel>
+            {mods.map((m) => {
               const entitled = hasModule(m.id);
               return (
                 <NavLink
@@ -133,8 +152,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 </NavLink>
               );
             })}
-          </>
-        )}
+          </div>
+        ))}
 
         <SectionLabel>Settings</SectionLabel>
         <NavLink

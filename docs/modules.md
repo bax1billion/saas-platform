@@ -64,6 +64,7 @@ export const investigationsModule: ModuleDef = {
     { label: "Cases", href: "/investigations/cases" },
     { label: "Report", href: "/investigations/report" },
   ],
+  group: "Programs",               // optional lineup arc → sidebar section
   availability: "addon",           // "included" | "addon" | "coming-soon"
   stage: "beta",                   // "ga" | "beta" | "planned"
   price: "$149",
@@ -114,6 +115,21 @@ settings, and neither the locked panel nor the marketing page offers a buy
 button. Marketing still names it — the homepage pricing strip renders
 `marketedAddonModules`, where a preview shows a `Preview` badge in place of
 a price and links to its module page.
+
+**Placeholder landing page.** A preview needs a `layout.tsx`
+(`<ModuleShell>`) and a `page.tsx`, nothing more. Until the module has a
+real `modules/<id>/components/ModuleHome.tsx`, render
+`app/components/ModulePreviewHome.tsx` from `page.tsx`: it turns the
+registry's marketing copy into an honest build-state page (headline,
+one dashed `TODO · spec'd` card per bullet, a link to `/modules/<id>`)
+and touches no data. `nav` may stay empty. This keeps a large lineup
+navigable from day one with zero fake data.
+
+**Grouping a large lineup.** `ModuleDef.group` (optional) labels a
+module's arc — e.g. "Operate" / "People" / "Programs". The app-shell
+sidebar renders one section per group in registry order; modules without
+a group fall under "Modules". Purely presentational: entitlements,
+routes and billing ignore it.
 
 Granting one is an operator action: `ModuleAccessCard` lists
 `marketedAddonModules` (previews tagged `Preview`), so an operator can comp
