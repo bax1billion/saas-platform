@@ -321,7 +321,7 @@ the `data` resource group.
 | `event-logger` | DynamoDB streams (all mapped tables) | **Stubbed** — logs the record shape; does not write `EventLog` |
 | `organization-trigger` | `Organization` INSERT | **Stubbed** — iterates `verticalOrgSeeds` and logs what it would create |
 | `newsletter-subscriber-trigger` | `NewsletterSubscriber` stream | **Stubbed** — no token generation, no SES send |
-| `s3-file-trigger` | S3 `uploads/` ObjectCreated | **Stubbed** — parses the key; no validation, hashing, or write-back |
+| `s3-file-trigger` | S3 `uploads/` ObjectCreated | **Implemented** — HEAD + allowlist/size policy (`ingest.ts`), one streaming pass for SHA-256 + EXIF, then the vertical seam `amplify/data/media-ingest.ts` writes the owning record over IAM (foundation default: log only) |
 | `ses-webhook-handler` | SNS (SES bounce/complaint) | **Partially implemented** — parses notifications; DB updates are TODO |
 
 **This is the single most important thing to know when testing:** the stubs
@@ -449,9 +449,22 @@ Create an EventBridge `Rule` **in the data stack** targeting your Lambda —
 | `exports/{entity_id}/*` | generated artifacts | no |
 | `logos/{entity_id}/*` | organization logos | no |
 
-`s3-file-trigger` parses keys as `uploads/{orgId}/{entityId}/{fileName}` and
-skips anything not under `uploads/`. New prefixes must be added **both** here
-and to `validatedUploadPrefixes` in `backend.ts` if they should be validated.
+`s3-file-trigger` parses keys as `uploads/{entityId}/{fileName…}` (the
+vertical decides what the entity segment means), skips anything not under
+`uploads/`, applies the content-type / size allowlist in
+`amplify/functions/s3-file-trigger/ingest.ts`, streams the object once for
+a SHA-256 (plus EXIF from the first 2 MiB of images), and hands the
+`IngestResult` to `amplify/data/media-ingest.ts`. That seam is
+downstream-owned: it reads the uploader's `x-amz-meta-media-id` metadata
+to find the owning row and writes the server-only columns (`sha256`,
+`fileValidationStatus`, EXIF) over the Lambda's IAM grant — columns whose
+field rules grant no client group a write (`docs/core-data-model.md`
+§2.5). The seam may answer `retry` when the row isn't there yet (clients
+create it right after the upload completes); the trigger waits, then
+throws so Lambda's async retry finishes the job. Originals are never
+modified or moved: an INVALID verdict lives on the row, not the object.
+New prefixes must be added **both** to `storage/resource.ts` and to
+`validatedUploadPrefixes` in `backend.ts` if they should be validated.
 
 ---
 
