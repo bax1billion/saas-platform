@@ -53,6 +53,13 @@ export interface ModuleDef {
   basePath: string;
   /** In-module navigation (the module's "tabs"). First item is the landing view. */
   nav: ModuleNavItem[];
+  /**
+   * Optional lineup group ("arc") for products with many modules, e.g.
+   * "Operate" / "People" / "Programs". When any module sets it, the app
+   * shell sidebar renders one section per group in registry order instead
+   * of a single "Modules" section. Purely presentational.
+   */
+  group?: string;
   availability: ModuleAvailability;
   stage: ModuleStage;
   /** Display price for add-ons, e.g. "$149". Billing truth lives in Stripe. */
