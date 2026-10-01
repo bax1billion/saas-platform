@@ -6,6 +6,7 @@ import {
   CognitoIdentityProviderClient,
 } from '@aws-sdk/client-cognito-identity-provider';
 import {
+  AUTH_CHECK_UNAVAILABLE_CLAIM,
   MFA_SETUP_CLAIM,
   configuredMethodsFromEnv,
   decideTokenIssue,
@@ -28,9 +29,15 @@ export type PolicyLookups = {
  * issues tokens without groups, so AppSync's group rules deny every read
  * and write until the user sets up two-step sign-in and refreshes.
  *
- * If a lookup itself fails (a table or Cognito call errors), the tokens are
- * issued unchanged and the error is logged: an outage in this trigger must
- * not lock every organization out of the app.
+ * If a lookup itself fails (a table or Cognito call errors), the trigger
+ * fails closed: it logs the error and issues tokens with no groups plus an
+ * `auth_check_unavailable` claim, so data rules deny everything and the app
+ * asks the person to try again. Issuing normal tokens instead would skip an
+ * organization's two-step requirement or a method it turned off, and the
+ * data store is most likely unreachable anyway, so refusing costs little.
+ * The refusal lives only in that one token: the next sign-in or token
+ * refresh runs the lookups again, so nothing is stored that could keep a
+ * pool locked out after the outage ends.
  */
 export async function applySignInPolicy(
   event: PreTokenGenerationTriggerEvent,
@@ -52,8 +59,7 @@ export async function applySignInPolicy(
   try {
     stored = await lookups.orgPolicyForSub(sub);
   } catch (err) {
-    console.error('Sign-in policy lookup failed; issuing tokens unchanged', err);
-    return event;
+    return refuseUnverified(event, 'Sign-in policy lookup failed', err);
   }
   if (!stored) return event; // no organization yet: onboarding, any method
 
@@ -65,8 +71,7 @@ export async function applySignInPolicy(
     try {
       totpEnrolled = await lookups.totpEnrolled(event.userPoolId, event.userName);
     } catch (err) {
-      console.error('Two-step status lookup failed; issuing tokens unchanged', err);
-      return event;
+      return refuseUnverified(event, 'Two-step status lookup failed', err);
     }
   }
 
@@ -82,6 +87,26 @@ export async function applySignInPolicy(
       },
     };
   }
+  return event;
+}
+
+/** Fail closed: no groups, and a claim the app turns into a retry screen. */
+function refuseUnverified(
+  event: PreTokenGenerationTriggerEvent,
+  what: string,
+  err: unknown
+): PreTokenGenerationTriggerEvent {
+  console.error(`${what}; issuing tokens without groups`, {
+    triggerSource: event.triggerSource,
+    userName: event.userName,
+    error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+  });
+  event.response = {
+    claimsOverrideDetails: {
+      claimsToAddOrOverride: { [AUTH_CHECK_UNAVAILABLE_CLAIM]: 'true' },
+      groupOverrideDetails: { groupsToOverride: [] },
+    },
+  };
   return event;
 }
 

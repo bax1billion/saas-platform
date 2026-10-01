@@ -88,7 +88,7 @@ describe('applySignInPolicy', () => {
     expect(l.orgPolicyForSub).not.toHaveBeenCalled();
   });
 
-  it('issues tokens unchanged when the policy lookup fails', async () => {
+  it('issues tokens without groups when the policy lookup fails', async () => {
     const l = {
       orgPolicyForSub: vi.fn(async (): Promise<null> => {
         throw new Error('ResourceNotFound');
@@ -97,8 +97,52 @@ describe('applySignInPolicy', () => {
     };
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     const e = await applySignInPolicy(event('uuid-user'), '', l);
-    expect(e.response).toEqual({ claimsOverrideDetails: {} });
-    expect(err).toHaveBeenCalled();
+    expect(e.response.claimsOverrideDetails).toEqual({
+      claimsToAddOrOverride: { auth_check_unavailable: 'true' },
+      groupOverrideDetails: { groupsToOverride: [] },
+    });
+    expect(l.totpEnrolled).not.toHaveBeenCalled();
+    expect(err).toHaveBeenCalledWith(
+      expect.stringContaining('Sign-in policy lookup failed'),
+      expect.objectContaining({ error: 'Error: ResourceNotFound' })
+    );
+    err.mockRestore();
+  });
+
+  it('issues tokens without groups when the two-step lookup fails', async () => {
+    const l = {
+      orgPolicyForSub: vi.fn(async () => ({ signInMethods: ['password'], mfaPolicy: 'REQUIRED' })),
+      totpEnrolled: vi.fn(async (): Promise<boolean> => {
+        throw new Error('TooManyRequestsException');
+      }),
+    };
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const e = await applySignInPolicy(event('uuid-user'), '', l);
+    expect(e.response.claimsOverrideDetails).toEqual({
+      claimsToAddOrOverride: { auth_check_unavailable: 'true' },
+      groupOverrideDetails: { groupsToOverride: [] },
+    });
+    expect(err).toHaveBeenCalledWith(
+      expect.stringContaining('Two-step status lookup failed'),
+      expect.anything()
+    );
+    err.mockRestore();
+  });
+
+  it('checks again on the next token issue after a failed lookup', async () => {
+    const orgPolicyForSub = vi
+      .fn<PolicyLookups['orgPolicyForSub']>()
+      .mockRejectedValueOnce(new Error('ProvisionedThroughputExceeded'))
+      .mockResolvedValue({ signInMethods: ['password'], mfaPolicy: 'OPTIONAL' });
+    const l = { orgPolicyForSub, totpEnrolled: vi.fn(async () => false) };
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const first = await applySignInPolicy(event('uuid-user'), '', l);
+    expect(first.response.claimsOverrideDetails.groupOverrideDetails).toEqual({ groupsToOverride: [] });
+    const refreshed = event('uuid-user');
+    refreshed.triggerSource = 'TokenGeneration_RefreshTokens';
+    const second = await applySignInPolicy(refreshed, '', l);
+    expect(second.response).toEqual({ claimsOverrideDetails: {} });
+    expect(orgPolicyForSub).toHaveBeenCalledTimes(2);
     err.mockRestore();
   });
 });

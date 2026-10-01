@@ -16,6 +16,7 @@ import {
 } from "aws-amplify/auth";
 import { Hub } from "aws-amplify/utils";
 import {
+  AUTH_CHECK_UNAVAILABLE_CLAIM,
   MFA_SETUP_CLAIM,
   policyErrorMessage,
   signInMethodFor,
@@ -30,6 +31,9 @@ type AuthUser = {
    *  it up: the token carries no groups until they do (see
    *  amplify/auth/pre-token-generation). */
   mfaSetupRequired: boolean;
+  /** The trigger could not read the sign-in policy, so this token carries
+   *  no groups; a token refresh checks again. */
+  authCheckUnavailable: boolean;
   /** "password", "google", "microsoft", ... (lib/auth-policy). */
   signInMethod: SignInMethod;
 };
@@ -101,6 +105,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
         userId: currentUser.userId,
         groups,
         mfaSetupRequired: idPayload?.[MFA_SETUP_CLAIM] === "true",
+        authCheckUnavailable: idPayload?.[AUTH_CHECK_UNAVAILABLE_CLAIM] === "true",
         signInMethod: signInMethodFor(
           currentUser.username,
           idPayload?.identities ? JSON.stringify(idPayload.identities) : null

@@ -216,6 +216,16 @@ export function decideTokenIssue(args: {
 export const MFA_SETUP_CLAIM = "mfa_setup_required";
 
 /**
+ * ID token claim the trigger sets when it could not read the sign-in policy
+ * (a table or Cognito call failed). Those tokens carry no groups, so every
+ * data rule denies them; the next sign-in or token refresh checks again.
+ */
+export const AUTH_CHECK_UNAVAILABLE_CLAIM = "auth_check_unavailable";
+
+/** What the app shows a person holding such a token. */
+export const AUTH_CHECK_UNAVAILABLE_MESSAGE = "We couldn't verify your sign-in. Please try again.";
+
+/**
  * Cognito wraps a trigger's error as "PreTokenGeneration failed with error
  * <message>." Returns the message for the person, or null when the error
  * is not one of ours.

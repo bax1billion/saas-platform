@@ -59,11 +59,23 @@ until an Admin saves a change; a null policy means the recommended one.
 3. **Fail-safe reading.** The trigger never applies a policy that would
    lock everyone out: methods the environment no longer offers are ignored,
    and if none is left, password sign-in stays on. A user with no
-   organization yet (onboarding) is not restricted. If the trigger's own
-   lookups fail (a table or Cognito call errors), it logs the error and
-   issues the tokens unchanged, so an outage in the trigger cannot lock
-   every organization out.
-4. **Custom operations.** Model rules deny a token with no groups by
+   organization yet (onboarding) is not restricted.
+4. **Fail closed when the check cannot run.** If the trigger's own lookups
+   fail (the User or Organization table, or Cognito's two-step status), it
+   logs the error and issues tokens with **no groups** plus an
+   `auth_check_unavailable` claim. Every data rule denies such a token, and
+   the app gate shows "We couldn't verify your sign-in. Please try again."
+   with a Try again button (a forced token refresh, then a reload) and Sign
+   out, instead of a half-loaded screen. Letting the sign-in through with
+   normal groups would skip an organization's two-step requirement or a
+   method it turned off; and when these lookups fail the data store is
+   most likely unreachable anyway, so refusing costs almost nothing. The
+   refusal is per token and nothing is stored: the next sign-in or token
+   refresh runs the lookups again, so an outage cannot leave a pool locked
+   out after it ends. A failure that does not clear on its own (for
+   example the tables are not found) shows up as the trigger's error log
+   and affects users with an organization and those still onboarding alike.
+5. **Custom operations.** Model rules deny a token with no groups by
    themselves. `getMediaAccess`, which any signed-in user may call, now also
    refuses a caller with no org group.
 
