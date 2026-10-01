@@ -3,6 +3,8 @@
 import { useState, FormEvent, useEffect } from "react";
 import {
   signIn,
+  signInWithRedirect,
+  confirmSignIn,
   signUp,
   confirmSignUp,
   resetPassword,
@@ -11,9 +13,26 @@ import {
 } from "aws-amplify/auth";
 import { useAuth } from "./AuthContext";
 import { siteConfig } from "@/config/site";
+import outputs from "@/amplify_outputs.json";
+import {
+  PASSWORD,
+  configuredMethodsFromOutputs,
+  methodLabel,
+  policyErrorMessage,
+  providerNameFor,
+} from "@/lib/auth-policy";
+
+/** Google / Microsoft buttons this environment offers (none until the
+ *  backend is built with AUTH_FEDERATED_PROVIDERS). */
+const federatedMethods = configuredMethodsFromOutputs(outputs).filter(
+  (m) => m !== PASSWORD
+);
 
 function getAuthErrorMessage(error: unknown): string {
   if (error instanceof Error) {
+    // The organization's sign-in policy refused this method.
+    const policy = policyErrorMessage(error.message);
+    if (policy) return policy;
     switch (error.name) {
       case "UserAlreadyAuthenticatedException":
         return "You're already signed in.";
@@ -46,6 +65,8 @@ export default function AuthModal() {
     closeAuthModal,
     setAuthView,
     refreshUser,
+    redirectError,
+    clearRedirectError,
   } = useAuth();
 
   const [email, setEmail] = useState("");
@@ -93,6 +114,7 @@ export default function AuthModal() {
   }
 
   function handleClose() {
+    clearRedirectError();
     closeAuthModal();
     setTimeout(resetForm, 200);
   }
@@ -112,6 +134,7 @@ export default function AuthModal() {
     e.preventDefault();
     setStatus("submitting");
     setErrorMsg("");
+    clearRedirectError();
 
     try {
       const result = await signIn({ username: email, password });
@@ -122,8 +145,57 @@ export default function AuthModal() {
         return;
       }
 
+      // Two-step sign-in is on for this account: ask for the app's code.
+      if (result.nextStep.signInStep === "CONFIRM_SIGN_IN_WITH_TOTP_CODE") {
+        switchView("confirmTotp");
+        return;
+      }
+
+      if (!result.isSignedIn) {
+        setStatus("error");
+        setErrorMsg("This sign-in needs a step this app does not support yet. Contact your administrator.");
+        return;
+      }
+
       await refreshUser();
       handleClose();
+    } catch (err) {
+      setStatus("error");
+      setErrorMsg(getAuthErrorMessage(err));
+    }
+  }
+
+  async function handleConfirmTotp(e: FormEvent) {
+    e.preventDefault();
+    setStatus("submitting");
+    setErrorMsg("");
+
+    try {
+      const result = await confirmSignIn({ challengeResponse: code.trim() });
+      if (!result.isSignedIn) {
+        setStatus("error");
+        setErrorMsg("That code did not finish signing you in. Start again.");
+        return;
+      }
+      await refreshUser();
+      handleClose();
+    } catch (err) {
+      setStatus("error");
+      setErrorMsg(getAuthErrorMessage(err));
+    }
+  }
+
+  async function handleFederated(method: string) {
+    const provider = providerNameFor(method);
+    if (!provider) return;
+    setStatus("submitting");
+    setErrorMsg("");
+    clearRedirectError();
+    try {
+      await signInWithRedirect({
+        provider:
+          provider === "Google" ? "Google" : { custom: provider },
+      });
     } catch (err) {
       setStatus("error");
       setErrorMsg(getAuthErrorMessage(err));
@@ -276,6 +348,31 @@ export default function AuthModal() {
               </p>
             )}
 
+            {redirectError && (
+              <p role="alert" className="mt-4 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {redirectError}
+              </p>
+            )}
+
+            {federatedMethods.length > 0 && (
+              <div className="mt-6 space-y-2">
+                {federatedMethods.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => handleFederated(m)}
+                    disabled={status === "submitting"}
+                    className="w-full rounded-lg border border-foreground/15 px-6 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+                  >
+                    Continue with {methodLabel(m)}
+                  </button>
+                ))}
+                <p className="pt-2 text-center text-xs uppercase tracking-wider text-foreground/40">
+                  or use your email
+                </p>
+              </div>
+            )}
+
             <form onSubmit={handleSignIn} className="mt-6 space-y-4">
               <div>
                 <label
@@ -355,6 +452,66 @@ export default function AuthModal() {
                   </button>
                 </p>
               </div>
+            </form>
+          </>
+        )}
+
+        {/* Two-step sign-in code */}
+        {authView === "confirmTotp" && (
+          <>
+            <h3 className="font-serif text-2xl font-bold text-foreground">
+              Enter your sign-in code
+            </h3>
+            <p className="mt-1 text-sm text-foreground/60">
+              Open your authenticator app and enter the 6-digit code for{" "}
+              {siteConfig.product.name}.
+            </p>
+
+            <form onSubmit={handleConfirmTotp} className="mt-6 space-y-4">
+              <div>
+                <label
+                  htmlFor="totp-code"
+                  className="block text-sm font-medium text-foreground/70"
+                >
+                  Code
+                </label>
+                <input
+                  id="totp-code"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="[0-9]{6}"
+                  maxLength={6}
+                  required
+                  autoFocus
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  className={inputClass}
+                  placeholder="123456"
+                />
+              </div>
+
+              {status === "error" && (
+                <p className="text-sm text-destructive">{errorMsg}</p>
+              )}
+
+              <button
+                type="submit"
+                disabled={status === "submitting"}
+                className={submitBtnClass}
+              >
+                {status === "submitting" ? "Checking..." : "Sign in"}
+              </button>
+
+              <p className="text-center text-sm text-foreground/50">
+                <button
+                  type="button"
+                  onClick={() => switchView("signIn")}
+                  className="text-foreground/50 hover:text-foreground"
+                >
+                  Start over
+                </button>
+              </p>
             </form>
           </>
         )}

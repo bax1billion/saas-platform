@@ -3,12 +3,14 @@
 import { useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { fetchAuthSession } from "aws-amplify/auth";
 import { useAuth } from "@/app/components/AuthContext";
 import EntitlementsProvider, {
   useEntitlements,
 } from "@/app/components/EntitlementsContext";
 import AppShell from "@/app/components/AppShell";
 import AuthModal from "@/app/components/AuthModal";
+import TwoStepSetup from "@/app/components/TwoStepSetup";
 import { siteConfig } from "@/config/site";
 
 function Spinner() {
@@ -51,25 +53,67 @@ function SignInPrompt() {
 }
 
 /**
+ * The organization requires two-step sign-in and this person has not set
+ * it up. Their token carries no groups until they do, so nothing else in
+ * the app can load; setup refreshes the session and the gate lets them in.
+ */
+function TwoStepRequired() {
+  const { handleSignOut } = useAuth();
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-muted px-6">
+      <div className="w-full max-w-md rounded-2xl bg-background p-8 shadow-sm">
+        <h1 className="font-serif text-2xl font-bold text-foreground">Set up two-step sign-in</h1>
+        <p className="mt-2 text-sm text-foreground/60">
+          Your organization asks everyone to use a code from an authenticator app when they sign in to{" "}
+          {siteConfig.product.name}. It takes about a minute.
+        </p>
+        <div className="mt-6">
+          {/* New tokens carry the groups again. Reload so every provider
+              starts from them, not from records it could not read. */}
+          <TwoStepSetup
+            afterEnable={async () => {
+              await fetchAuthSession({ forceRefresh: true });
+              window.location.reload();
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => void handleSignOut()}
+          className="mt-6 text-sm text-foreground/50 hover:text-foreground"
+        >
+          Sign out
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Gate for the (app) route group — see docs/subscriptions-and-payments.md
- * §3. Auth → onboarding → shell. Subscription state is surfaced in the
- * shell (banner, dashboard card) rather than hard-blocking here: reads stay
+ * §3. Auth → two-step setup if the org requires it → onboarding → shell.
+ * Subscription state is surfaced in the shell (banner, dashboard card)
+ * rather than hard-blocking here: reads stay
  * available after lapse, and module access is decided per module by
  * ModuleShell from resolved entitlements.
  */
 function AppGate({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, user } = useAuth();
   const { isLoading, needsOnboarding } = useEntitlements();
+  const mfaSetupRequired = user?.mfaSetupRequired ?? false;
 
   useEffect(() => {
-    if (!isLoading && isAuthenticated && needsOnboarding) {
+    // A token without groups cannot read the User row, which would look
+    // like "no org yet": never send that person to onboarding.
+    if (!isLoading && isAuthenticated && needsOnboarding && !mfaSetupRequired) {
       router.replace("/onboarding");
     }
-  }, [isLoading, isAuthenticated, needsOnboarding, router]);
+  }, [isLoading, isAuthenticated, needsOnboarding, mfaSetupRequired, router]);
 
   if (authLoading) return <Spinner />;
   if (!isAuthenticated) return <SignInPrompt />;
+  if (mfaSetupRequired) return <TwoStepRequired />;
   if (isLoading || needsOnboarding) return <Spinner />;
 
   return <AppShell>{children}</AppShell>;
