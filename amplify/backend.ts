@@ -16,6 +16,8 @@ import { assistRunFunction } from './functions/assist-run/resource';
 import { createExportRenderer } from './custom/export-renderer/resource';
 import { normalizePublicKeyPem } from './custom/media-cdn/public-key';
 import { postConfirmation } from './auth/post-confirmation/resource';
+import { preTokenGeneration } from './auth/pre-token-generation/resource';
+import { orgAuthPolicyFunction } from './functions/org-auth-policy/resource';
 import {
   verticalStreamTables,
   verticalStreamConsumers,
@@ -43,6 +45,8 @@ const backend = defineBackend({
   data,
   storage,
   postConfirmation,
+  preTokenGeneration,
+  orgAuthPolicyFunction,
   eventLoggerFunction,
   organizationTriggerFunction,
   s3FileTriggerFunction,
@@ -232,6 +236,7 @@ const allTriggerFunctions = [
   backend.createCheckoutSessionFunction,
   backend.createOrganizationFunction,
   backend.getMediaUrlsFunction,
+  backend.orgAuthPolicyFunction,
   backend.exportRequestFunction,
   backend.assistRunFunction,
   // Module command handlers. Their keys come from the vertical seam, so
@@ -623,6 +628,42 @@ postConfirmationLambda.addToRolePolicy(
       'cognito-idp:GetGroup',
       'cognito-idp:CreateGroup',
     ],
+    resources: [
+      `arn:aws:cognito-idp:${backend.stack.region}:${backend.stack.account}:userpool/*`,
+    ],
+  })
+);
+
+// ═══════════════════════════════════════════════════════════════════
+// #7b Pre token generation trigger IAM (organization sign-in policy)
+// Same constraints as #7: wildcard ARNs, table names discovered at
+// runtime. Reads the caller's User row and Organization policy, and asks
+// Cognito whether the user has an authenticator app set up.
+// ═══════════════════════════════════════════════════════════════════
+
+const preTokenLambda = backend.preTokenGeneration.resources.lambda;
+
+preTokenLambda.addToRolePolicy(
+  new iam.PolicyStatement({
+    actions: ['dynamodb:ListTables'],
+    resources: ['*'],
+  })
+);
+
+preTokenLambda.addToRolePolicy(
+  new iam.PolicyStatement({
+    actions: ['dynamodb:Query', 'dynamodb:GetItem'],
+    resources: [
+      `arn:aws:dynamodb:${backend.stack.region}:${backend.stack.account}:table/User-*`,
+      `arn:aws:dynamodb:${backend.stack.region}:${backend.stack.account}:table/User-*/index/*`,
+      `arn:aws:dynamodb:${backend.stack.region}:${backend.stack.account}:table/Organization-*`,
+    ],
+  })
+);
+
+preTokenLambda.addToRolePolicy(
+  new iam.PolicyStatement({
+    actions: ['cognito-idp:AdminGetUser'],
     resources: [
       `arn:aws:cognito-idp:${backend.stack.region}:${backend.stack.account}:userpool/*`,
     ],

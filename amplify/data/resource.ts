@@ -8,6 +8,7 @@ import { stripeWebhookHandlerFunction } from '../functions/stripe-webhook-handle
 import { createCheckoutSessionFunction } from '../functions/create-checkout-session/resource';
 import { createOrganizationFunction } from '../functions/create-organization/resource';
 import { getMediaUrlsFunction } from '../functions/get-media-urls/resource';
+import { orgAuthPolicyFunction } from '../functions/org-auth-policy/resource';
 import { exportRequestFunction } from '../functions/export-request/resource';
 import { assistRunFunction } from '../functions/assist-run/resource';
 import {
@@ -16,6 +17,11 @@ import {
   verticalEventActions,
   verticalFunctions,
 } from './vertical';
+
+/** Field rule for server-owned columns: every org role reads, no client
+ *  writes (a Lambda granted on the schema over IAM still can). */
+type Allow = Parameters<Parameters<ReturnType<typeof a.string>['authorization']>[0]>[0];
+const READ_ONLY = (allow: Allow) => [allow.groups(['Admin', 'Member', 'Viewer']).to(['read'])];
 
 /**
  * Foundation schema — tenancy, auth, billing, audit trail, newsletter.
@@ -55,6 +61,10 @@ const schema = a
     ]),
 
     SubscriptionTier: a.enum(['CORE', 'GROWTH', 'SCALE', 'TRIAL']),
+
+    /** Organization two-step sign-in policy (amplify/shared/auth-policy.ts).
+     *  Null on the Organization means the recommended default, OPTIONAL. */
+    OrgMfaPolicy: a.enum(['OFF', 'OPTIONAL', 'REQUIRED']),
 
     /** Mirrors Stripe subscription status values. */
     SubscriptionStatus: a.enum([
@@ -116,6 +126,14 @@ const schema = a
         website: a.string(),
         logoS3Key: a.string(),
         settings: a.json(),
+        /** Sign-in policy (docs/sign-in-and-mfa.md). Written only by the
+         *  setOrgAuthPolicy command, which validates it and checks the
+         *  caller is an Admin of this org; read by the pre token
+         *  generation trigger. Null = the recommended default. */
+        signInMethods: a.string().array().authorization(READ_ONLY),
+        mfaPolicy: a.ref('OrgMfaPolicy').authorization(READ_ONLY),
+        authPolicyUpdatedAt: a.datetime().authorization(READ_ONLY),
+        authPolicyUpdatedBy: a.string().authorization(READ_ONLY),
         stripeCustomerId: a.string(),
         isActive: a.boolean().default(true),
         users: a.hasMany('User', 'orgId'),
@@ -520,6 +538,23 @@ const schema = a
       .authorization((allow) => [allow.authenticated()])
       .handler(a.handler.function(getMediaUrlsFunction)),
 
+    OrgAuthPolicyResponse: a.customType({
+      signInMethods: a.string().array().required(),
+      mfaPolicy: a.ref('OrgMfaPolicy').required(),
+    }),
+
+    /** An org Admin sets which sign-in methods the org allows and its
+     *  two-step policy. A command so a bad or cross-org change is refused
+     *  before anything is written (amplify/functions/org-auth-policy). */
+    setOrgAuthPolicy: a
+      .mutation()
+      .arguments({
+        signInMethods: a.string().array().required(),
+        mfaPolicy: a.ref('OrgMfaPolicy').required(),
+      })
+      .returns(a.ref('OrgAuthPolicyResponse'))
+      .authorization((allow) => [allow.group('Admin')])
+      .handler(a.handler.function(orgAuthPolicyFunction)),
     AssistRunResult: a.customType({
       eventId: a.id().required(),
       helperId: a.string().required(),
@@ -637,6 +672,7 @@ const schema = a
       .resource(createOrganizationFunction)
       .to(['query', 'mutate']),
     allow.resource(getMediaUrlsFunction).to(['query']),
+    allow.resource(orgAuthPolicyFunction).to(['query', 'mutate']),
     allow.resource(exportRequestFunction).to(['query', 'mutate']),
     allow.resource(assistRunFunction).to(['query', 'mutate']),
     // Module command handlers (amplify/data/vertical.ts → verticalFunctions)

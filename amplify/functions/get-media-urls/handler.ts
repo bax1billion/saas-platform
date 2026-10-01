@@ -2,6 +2,7 @@ import type { Schema } from '../../data/resource';
 import { getSignedUrl } from '@aws-sdk/cloudfront-signer';
 import { graphql } from '../../shared/graphql';
 import { authorizeMediaPrefix } from '../../data/media-auth';
+import { ADMIN, MEMBER, VIEWER } from '../../shared/constants';
 
 /**
  * getMediaAccess(prefix) — CloudFront signed access to the media CDN
@@ -97,6 +98,11 @@ export const handler: Schema['getMediaAccess']['functionHandler'] = async (
     throw new Error('getMediaAccess requires a signed-in user.');
   }
   const groups = identity?.groups ?? [];
+  // A token with no org group (e.g. issued while the user must still set
+  // up two-step sign-in, docs/sign-in-and-mfa.md) gets no media access.
+  if (!groups.some((g) => g === ADMIN || g === MEMBER || g === VIEWER)) {
+    throw new Error('Not authorized for this media prefix.');
+  }
 
   const userRes = await graphql<{
     usersByCognitoSub: { items: Array<{ id: string; orgId: string | null }> };
