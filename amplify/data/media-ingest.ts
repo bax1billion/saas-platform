@@ -13,9 +13,10 @@ import type { IngestResult } from '../functions/s3-file-trigger/ingest';
  *   recorded — the owning row was updated
  *   ignored  — nothing owns this key (or the metadata doesn't match it);
  *              logged, not retried
- *   retry    — the row should exist but doesn't yet (clients create it
- *              right after the upload completes); the trigger waits and
- *              retries, then defers to Lambda's async retry
+ *   retry    — the row should exist but doesn't yet (the client creates
+ *              the row, with its key, before the upload starts, so this
+ *              is a replica lag or a client that died mid-flight); the
+ *              trigger waits and retries, then defers to Lambda's async retry
  *
  * Product sketch:
  *

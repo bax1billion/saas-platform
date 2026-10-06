@@ -390,6 +390,12 @@ the build. Per app/branch, configure in the console: `APP_URL` (read at synth
 time by `backend.ts`), the Stripe secrets (test mode in staging, live in
 production), and `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
 
+The build runs on the Standard compute tier (8 GiB). Node's default heap on
+that box is about 2 GiB and the frontend type check needs about that much, so
+`.npmrc` raises the heap for every npm script (`node-options`); it travels with
+the repo, so both apps get it. Changing the compute tier in the console does
+not change the default heap. See the CLAUDE.md gotcha for the numbers.
+
 There is no deploy ordering to manage inside the backend — the
 CloudFormation graph is acyclic by construction. Deploy everything at once;
 the only sequencing is §8.
@@ -445,8 +451,8 @@ Create an EventBridge `Rule` **in the data stack** targeting your Lambda —
 
 | Prefix | Purpose | Triggered |
 |---|---|---|
-| `uploads/{entity_id}/*` | user documents | yes — `s3-file-trigger` validation pipeline |
-| `exports/{entity_id}/*` | generated artifacts | no |
+| `uploads/{entity_id}/*` | user documents — **write only**; every read goes through the media CDN, S3 is upload/origin only | yes — `s3-file-trigger` validation pipeline |
+| `exports/<orgId>/<jobId>/*` | rendered exports — Lambda-only (the renderer writes, `getExportDownload` presigns) | no |
 | `logos/{entity_id}/*` | organization logos | no |
 
 `s3-file-trigger` parses keys as `uploads/{entityId}/{fileName…}` (the

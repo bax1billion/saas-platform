@@ -68,13 +68,12 @@ no routes, no schema.
      `belongsTo('Organization')` (needs a matching hasMany on a foundation
      model and fails synth without it)
    - `sortDate` for chronological GSIs; `isDeleted` for soft delete
-   - export the six values the vertical seam composes: `runModels`,
-     `runEntityTypes`, `runEventActions`, `runOrgSeeds`,
-     `runPriceSecret` (`'STRIPE_PRICE_MODULE_RUN'`), and `runStreamTables`
+   - export the five values the vertical seam composes: `runModels`,
+     `runEntityTypes`, `runEventActions`, `runOrgSeeds`, and `runStreamTables`
 2. **Compose** in `amplify/data/vertical.ts` — spread each export into the
    `vertical*` aggregates and add `run: runStreamTables` to
    `verticalModuleTables` (that map is what the backend entitlement steps
-   gate on) and `run: runPriceSecret` to `verticalModulePriceSecrets`.
+   gate on).
 3. **Verify before any deploy:**
    ```bash
    npx tsc --noEmit
@@ -123,6 +122,22 @@ to become write-then-mark-invalid. Additionally:
   into several rows owns its own compensating rollback on partial failure —
   a cost the stream shape does not carry, since delivery retries.
 
+**Stream consumers (domain logic on a table's DynamoDB stream)** — when a
+write must have a server-side consequence whoever made it (a request
+becoming APPROVED opens the follow-up row):
+- define the function like a command handler (it also needs the schema
+  grant, so it goes in `<id>Functions`), and export
+  `<id>StreamConsumers: Record<table, Array<keyof typeof <id>Functions>>`;
+- `vertical.ts` composes it into `verticalStreamConsumers` with
+  `mergeStreamConsumers(...)` (`amplify/data/stream-consumers.ts`), which
+  merges **per table**, so two modules may consume the same table and both
+  handlers stay attached (object spread would keep only the last one);
+  `backend.ts` adds the EventSourceMapping and the stream-read policy next
+  to the event-logger's — no per-module edit to the foundation;
+- the handler receives `NEW_AND_OLD_IMAGES`; unmarshal with
+  `@aws-sdk/util-dynamodb`, key idempotency on the source row's id, and log
+  and continue on a bad record so one poison row does not block the batch.
+
 ## 3. Routes and UI (thin routes, real components)
 
 Routes under `app/(app)/run/` stay thin; all real UI lives in
@@ -165,10 +180,10 @@ the native mobile app will import from it.
 3. Sidebar → Run → your module home.
 
 No Stripe setup needed until you sell it. When you do: create the Stripe
-Product with metadata `module=run` + a Price, set the
-`STRIPE_PRICE_MODULE_RUN` secret in every environment (placeholder value
-is fine before launch — the deploy fails if the secret *name* is missing),
-and the webhook + checkout handle the rest.
+Product with metadata `module=run` + a Price, add `"run": "price_..."` to
+the `STRIPE_MODULE_PRICES` secret in the environment that sells it (the
+secret is bound only where a module is sellable, so other environments need
+nothing), and the webhook + checkout handle the rest.
 
 ## 5. Definition of demoable (checklist)
 
@@ -183,6 +198,9 @@ and the webhook + checkout handle the rest.
       `modules/<id>/lib/*.test.ts` — the DOM-free helpers are the ones
       worth covering)
 - [ ] `npx tsc --noEmit` · `npx eslint` on new paths · `npx next build`
+- [ ] `npm run check:resolvers -- --profile <sandbox>` if the module adds or
+      changes any APPSYNC_JS step (`amplify/data/**/*.js`) — validates the
+      assembled code with AppSync's own runtime (read-only, needs credentials)
 
 ## Gotchas collected the hard way
 
@@ -191,7 +209,11 @@ and the webhook + checkout handle the rest.
 | Synth: "does not provide an export named …" | Schema file outside `amplify/` (CJS/ESM boundary) |
 | Synth: "Unable to find associated relationship definition in Organization" | `belongsTo('Organization')` on a module model |
 | Synth: "Mutation cannot redeclare field create<X>" | Custom mutation name collides with a generated CRUD mutation |
-| Deploy: "Failed to retrieve backend secret" | `STRIPE_PRICE_MODULE_<ID>` secret name not created in that environment |
+| Deploy: "Failed to retrieve backend secret" | A bound secret (`STRIPE_MODULE_PRICES` where a module is sellable, `MEDIA_CDN_PRIVATE_KEY` everywhere) not created in that environment |
+| Deploy: "Request must be smaller than 5120 bytes for the UpdateFunctionConfiguration operation" | A Lambda's environment passed 4 KB; usually too many `secret()` bindings on one function. Fold them into one JSON secret |
+| Deploy: `CloudformationResourceCircularDependencyError` naming a `*NestedStackResource` and an `AWS::AppSync::FunctionConfiguration` (synth was green) | An APPSYNC_JS pipeline step created in the top-level data stack (`Stack.of(graphqlApi)`) whose data source table lives in a model's nested stack, referenced back by that stack's resolvers. Create the step in `Stack.of(dataSource)` — see `amplify/data/record-access/`. `npm run check:backend` scans the synthesized templates for this (`scripts/check-cfn-cycles.mjs`) |
+| Deploy: `AppSyncResolverSyntaxError` / "The code contains one or more errors" on an `AWS::AppSync::FunctionConfiguration` (tests were green) | An APPSYNC_JS step uses something outside the runtime's subset — `Function.call/apply/bind`, `Object.prototype.*`, `throw`, `try`, `while`, a C-style `for`, a regex literal, `++` — or a comparison the runtime's TypeScript pass can prove false, such as a synth-substituted `const MODE = 'view'` compared with `=== 'edit'` (TS2367). Node runs all of these, so vitest cannot catch them; `amplify/data/appsync-js.test.ts` catches the common ones statically. Run `npm run check:resolvers -- --profile <sandbox>` (`scripts/check-resolvers.mjs`): it feeds every APPSYNC_JS handler from the synthesized templates to AppSync's read-only `evaluate-code` API, request and response, so the assembled code is checked against the real runtime before a deploy. Remember a snippet injected into every step (a record-access decision) fails every step at once |
+| Deploy: "TypeScript validation check failed … Cannot find module '@/…'" (root `tsc` was green) | `ampx` type-checks `amplify/` with `amplify/tsconfig.json`, which has no `@/` alias. Files under `amplify/` import `modules/` by relative path |
 | Writes fail with `ModuleRequired` despite the pilot card | Module id mismatch between `config/modules.ts`, `verticalModuleTables`, and the settings override |
 | Everything read-only right after onboarding | Token not force-refreshed — sign out/in |
 | `tsc` errors in `.next/types` after switching branches | Stale build artifacts — `rm -rf .next` |

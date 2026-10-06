@@ -20,7 +20,7 @@ function SuccessContent() {
           </p>
           <a
             href="/subscribe"
-            className="mt-4 inline-block rounded-lg bg-primary px-6 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
+            className="mt-4 inline-block rounded-lg bg-primary px-6 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Back to plans
           </a>

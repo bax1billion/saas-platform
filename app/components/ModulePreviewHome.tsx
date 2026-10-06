@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { getModule, isPreview } from "@/lib/modules";
+import { getModule, isPreview, productPath } from "@/lib/modules";
 import ModuleIcon from "./ModuleIcon";
 
 /**
@@ -31,7 +31,7 @@ export default function ModulePreviewHome({ moduleId }: { moduleId: string }) {
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="font-serif text-2xl font-bold text-foreground">{mod.name}</h2>
               {isPreview(mod) && (
-                <span className="rounded-full border border-dashed border-warning/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-warning">
+                <span className="rounded-full border border-dashed border-border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Preview · not yet built
                 </span>
               )}
@@ -41,12 +41,14 @@ export default function ModulePreviewHome({ moduleId }: { moduleId: string }) {
             </p>
           </div>
         </div>
-        <Link
-          href={`/modules/${mod.id}`}
-          className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted"
-        >
-          Read the plan <ArrowRight className="h-4 w-4" />
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href={productPath(mod)}
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted"
+          >
+            Read the plan <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
       </div>
 
       <p className="mt-6 max-w-3xl text-lg leading-relaxed text-foreground/70">{mod.marketing.headline}</p>
@@ -60,8 +62,8 @@ export default function ModulePreviewHome({ moduleId }: { moduleId: string }) {
           >
             <div className="flex items-center justify-between">
               <span className="font-mono text-xs text-muted-foreground">{String(i + 1).padStart(2, "0")}</span>
-              <span className="rounded-full border border-dashed border-warning/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-warning">
-                TODO · spec&apos;d
+              <span className="rounded-full border border-dashed border-border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Coming
               </span>
             </div>
             <p className="mt-3 text-sm leading-relaxed text-foreground">{b}</p>

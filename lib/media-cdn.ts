@@ -53,20 +53,40 @@ export async function getMediaAccess(prefix: string): Promise<MediaAccess> {
   return access;
 }
 
+function withQuery(url: string, parts: string[]): string {
+  const q = parts.filter(Boolean).join("&");
+  return q ? `${url}?${q}` : url;
+}
+
+const encodePath = (key: string) => key.split("/").map(encodeURIComponent).join("/");
+
 /** Build a variant URL under an access grant. Key must start with the
- *  grant's prefix. */
+ *  grant's prefix. `params` is empty in open mode (sandbox). */
 export function buildVariantUrl(
   access: MediaAccess,
   key: string,
   opts: VariantOpts = {}
 ): string | null {
-  if (!access.enabled || !access.domain || !access.params) return null;
-  const path = key.split("/").map(encodeURIComponent).join("/");
+  if (!access.enabled || !access.domain || access.params == null) return null;
   const variant = Object.entries(opts)
     .filter(([, v]) => v !== undefined)
     .map(([k, v]) => `${k}=${v}`)
     .join("&");
-  return `https://${access.domain}/${path}?${access.params}${
-    variant ? `&${variant}` : ""
-  }`;
+  return withQuery(`https://${access.domain}/${encodePath(key)}`, [access.params, variant]);
+}
+
+/**
+ * URL of the untouched original, served by CloudFront straight from S3
+ * with range support (video/audio playback, downloads). The CDN's
+ * originals behavior (path pattern star-slash-original-slash-star) strips
+ * the marker segment inserted after the entity id:
+ * `uploads/<entity>/<file>` → `/uploads/<entity>/original/<file>`.
+ * S3 itself is never read by clients (docs/image-delivery.md §4).
+ */
+export function buildOriginalUrl(access: MediaAccess, key: string): string | null {
+  if (!access.enabled || !access.domain || access.params == null) return null;
+  const segments = key.split("/");
+  if (segments.length < 3) return null;
+  const path = [...segments.slice(0, 2), "original", ...segments.slice(2)].map(encodeURIComponent).join("/");
+  return withQuery(`https://${access.domain}/${path}`, [access.params]);
 }

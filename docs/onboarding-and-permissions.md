@@ -41,8 +41,9 @@ Client: refreshUser({ forceRefresh: true })   ← REQUIRED: pulls new tokens so
     │
     ├── real customers: /subscribe → Stripe checkout → webhook mirrors the
     │   subscription (tier, status, add-on modules) → entitled
-    └── pilots / dev orgs: Settings → "Pilot & development access" (Admin
-        card) writes Organization.settings overrides → entitled
+    └── pilots / dev orgs: an Operator writes OrgEntitlementOverride
+        (settings card for their own org, or the AppSync console for any
+        org — docs/operator-grants.md) → entitled
 ```
 
 ## What each layer contributes
@@ -54,9 +55,9 @@ Client: refreshUser({ forceRefresh: true })   ← REQUIRED: pulls new tokens so
 | Onboarding gate | `app/(app)/layout.tsx` (`AppGate`) + `app/components/EntitlementsContext.tsx` | `needsOnboarding` = signed in ∧ `User.orgId` null |
 | Org creation | `provisionOrganization` mutation → `amplify/functions/create-organization/handler.ts` | Named to avoid the generated `createOrganization` CRUD mutation. Runs with IAM, so it can write while the caller is still a Viewer |
 | Token refresh | `AuthContext.refreshUser({ forceRefresh: true })` | Without it the cached token lacks the Admin group and everything stays read-only |
-| Entitlements | `EntitlementsContext` → `resolveEntitledModules()` (`lib/modules`) | User → Organization → latest OrgSubscription; module set = included (if active) ∪ subscription `modules[]` ∪ `settings.modules` |
+| Entitlements | `EntitlementsContext` → `resolveEntitledModules()` (`lib/modules`) | User → Organization → latest OrgSubscription + latest OrgEntitlementOverride; module set = included (if active) ∪ subscription `modules[]` ∪ live override `modules[]` |
 | Backend enforcement | `amplify/data/entitlements/` | Gated mutations re-check the same rules server-side; errors: `OnboardingRequired` / `SubscriptionRequired` / `ModuleRequired` |
-| Operator overrides | `app/components/ModuleAccessCard.tsx` on `/settings` | Operator-group only; manages the org's `OrgEntitlementOverride` (comped/base access, modules, reason, expiry). Note: the in-app card requires the operator to be a member of that org — cross-org grants go through the AppSync console until an internal operator surface exists |
+| Operator overrides | `app/components/ModuleAccessCard.tsx` on `/settings` | Operator-group only; manages the org's `OrgEntitlementOverride` (comped/base access, modules, reason, expiry). Note: the in-app card requires the operator to be a member of that org — cross-org grants follow `docs/operator-grants.md` (AppSync console) until an internal operator surface exists |
 
 ### Trying it end to end (developer checklist)
 

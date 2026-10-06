@@ -24,6 +24,8 @@ import { authorizeMediaPrefix } from '../../data/media-auth';
 const DOMAIN = process.env.MEDIA_CDN_DOMAIN ?? '';
 const KEY_PAIR_ID = process.env.MEDIA_CDN_KEY_PAIR_ID ?? '';
 const PRIVATE_KEY = process.env.MEDIA_CDN_PRIVATE_KEY ?? '';
+/** 'signed' | 'open' | 'closed' — set at synth from the distribution's mode. */
+const MODE = process.env.MEDIA_CDN_MODE ?? 'closed';
 const TTL_SECONDS = 15 * 60;
 
 const signingEnabled = () =>
@@ -80,15 +82,21 @@ export const handler: Schema['getMediaAccess']['functionHandler'] = async (
     throw new Error('Invalid media prefix');
   }
 
+  // Open mode (sandbox testing): the distribution serves without
+  // signatures, so hand out plain CDN URLs — never an S3 fallback.
+  if (MODE === 'open' && DOMAIN.length > 0) {
+    return { enabled: true, domain: DOMAIN, params: '', expiresAt: null };
+  }
   if (!signingEnabled()) {
     return { enabled: false, domain: null, params: null, expiresAt: null };
   }
 
-  const identity = event.identity as { sub?: string } | null | undefined;
+  const identity = event.identity as { sub?: string; groups?: string[] | null } | null | undefined;
   const cognitoSub = identity?.sub;
   if (!cognitoSub) {
     throw new Error('getMediaAccess requires a signed-in user.');
   }
+  const groups = identity?.groups ?? [];
 
   const userRes = await graphql<{
     usersByCognitoSub: { items: Array<{ id: string; orgId: string | null }> };
@@ -103,7 +111,7 @@ export const handler: Schema['getMediaAccess']['functionHandler'] = async (
     throw new Error('Complete onboarding before requesting media access.');
   }
 
-  const allowed = await authorizeMediaPrefix({ cognitoSub, orgId, prefix, graphql });
+  const allowed = await authorizeMediaPrefix({ cognitoSub, groups, orgId, prefix, graphql });
   if (!allowed) {
     throw new Error('Not authorized for this media prefix.');
   }

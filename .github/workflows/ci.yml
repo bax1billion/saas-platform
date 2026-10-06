@@ -39,5 +39,8 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      - name: Lint (includes the module import boundaries, docs/data-coupling.md)
+        run: npx eslint . --max-warnings=0
+
       - name: Backend synth (local CDK assembly)
         run: npm run check:backend

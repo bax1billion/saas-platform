@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Lock } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { useAuth } from "@/app/components/AuthContext";
 import { useEntitlements } from "@/app/components/EntitlementsContext";
 import ModuleIcon from "@/app/components/ModuleIcon";
 import { activeModules, modules, availabilityLabel, isPreview } from "@/lib/modules";
+import { canManageOrg, greeting } from "@/lib/roles";
 import { tiers } from "@/config/pricing";
 import { siteConfig } from "@/config/site";
 
@@ -72,20 +73,39 @@ function SubscriptionCard() {
   );
 }
 
+/** The person's name for the greeting: first name, or the part of the email before the @. */
+function displayName(firstName: string | null | undefined, email: string | undefined): string | null {
+  if (firstName?.trim()) return firstName.trim();
+  const local = email?.split("@")[0];
+  if (!local) return null;
+  const word = local.split(/[.+_-]/)[0];
+  return word ? word.charAt(0).toUpperCase() + word.slice(1) : null;
+}
+
+/**
+ * The app home. Members see the modules their organization has; Admins and
+ * Operators also see the rest of the lineup with its status, plus the
+ * subscription card. A member never sees a price, a lock or an Add button
+ * here.
+ */
 export default function DashboardPage() {
   const { user } = useAuth();
-  const { org, hasModule } = useEntitlements();
+  const { org, hasModule, userRecord } = useEntitlements();
+  const manager = canManageOrg(user?.groups);
+  const name = displayName(userRecord?.firstName, user?.email);
+  const shown = activeModules.filter((m) => hasModule(m.id) || manager);
 
   return (
     <div className="mx-auto max-w-7xl px-6 py-8">
       <div className="flex flex-col gap-1">
         <p className="text-sm text-muted-foreground">{org?.name}</p>
         <h1 className="font-serif text-3xl font-bold text-foreground">
-          Welcome back{user?.email ? `, ${user.email.split("@")[0]}` : ""}
+          {greeting()}
+          {name ? `, ${name}` : ""}
         </h1>
       </div>
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-[2fr_1fr]">
+      <div className={`mt-8 grid gap-6 ${manager ? "lg:grid-cols-[2fr_1fr]" : ""}`}>
         <section>
           <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Modules
@@ -96,9 +116,13 @@ export default function DashboardPage() {
               <code className="rounded bg-muted px-1">config/modules.ts</code>{" "}
               (see docs/modules.md).
             </p>
+          ) : shown.length === 0 ? (
+            <p className="mt-3 text-sm text-foreground/60">
+              No modules on your organization&apos;s plan yet. An admin can add them.
+            </p>
           ) : (
             <div className="mt-3 grid gap-4 sm:grid-cols-2">
-              {activeModules.map((m) => {
+              {shown.map((m) => {
                 const entitled = hasModule(m.id);
                 return (
                   <Link
@@ -114,14 +138,17 @@ export default function DashboardPage() {
                           Active
                         </span>
                       ) : (
-                        <span className="flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          <Lock className="h-3 w-3" /> {availabilityLabel(m)}
+                        <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          {availabilityLabel(m)}
                         </span>
                       )}
                     </div>
                     <h3 className="mt-3 font-serif text-lg font-bold text-foreground">
                       {m.name}
                     </h3>
+                    {m.plainName && (
+                      <p className="text-xs font-semibold text-muted-foreground">{m.plainName}</p>
+                    )}
                     <p className="mt-1 flex-1 text-sm text-foreground/60">
                       {m.description}
                     </p>
@@ -130,52 +157,55 @@ export default function DashboardPage() {
                         ? "Open"
                         : isPreview(m)
                           ? "See what's coming"
-                          : "Add module"}{" "}
+                          : `Add ${m.name}`}{" "}
                       →
                     </span>
                   </Link>
                 );
               })}
-              {modules
-                .filter((m) => m.availability === "coming-soon")
-                .map((m) => (
-                  <div
-                    key={m.id}
-                    className="flex flex-col rounded-xl border border-dashed border-border bg-background/50 p-5 opacity-70"
-                  >
-                    <div className="flex items-center justify-between">
-                      <ModuleIcon module={m} size="md" />
-                      <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        Coming soon
-                      </span>
+              {manager &&
+                modules
+                  .filter((m) => m.availability === "coming-soon")
+                  .map((m) => (
+                    <div
+                      key={m.id}
+                      className="flex flex-col rounded-xl border border-dashed border-border bg-background/50 p-5 opacity-70"
+                    >
+                      <div className="flex items-center justify-between">
+                        <ModuleIcon module={m} size="md" />
+                        <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Coming soon
+                        </span>
+                      </div>
+                      <h3 className="mt-3 font-serif text-lg font-bold text-foreground">
+                        {m.name}
+                      </h3>
+                      <p className="mt-1 text-sm text-foreground/60">{m.tagline}</p>
                     </div>
-                    <h3 className="mt-3 font-serif text-lg font-bold text-foreground">
-                      {m.name}
-                    </h3>
-                    <p className="mt-1 text-sm text-foreground/60">{m.tagline}</p>
-                  </div>
-                ))}
+                  ))}
             </div>
           )}
         </section>
 
-        <aside className="space-y-6">
-          <SubscriptionCard />
-          <div className="rounded-xl border border-border bg-background p-6">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Need help?
+        {manager && (
+          <aside className="space-y-6">
+            <SubscriptionCard />
+            <div className="rounded-xl border border-border bg-background p-6">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Need help?
+              </div>
+              <p className="mt-2 text-sm text-foreground/70">
+                Email{" "}
+                <a
+                  href={`mailto:${siteConfig.company.supportEmail}`}
+                  className="font-semibold text-primary hover:underline"
+                >
+                  {siteConfig.company.supportEmail}
+                </a>
+              </p>
             </div>
-            <p className="mt-2 text-sm text-foreground/70">
-              Email{" "}
-              <a
-                href={`mailto:${siteConfig.company.supportEmail}`}
-                className="font-semibold text-primary hover:underline"
-              >
-                {siteConfig.company.supportEmail}
-              </a>
-            </p>
-          </div>
-        </aside>
+          </aside>
+        )}
       </div>
     </div>
   );

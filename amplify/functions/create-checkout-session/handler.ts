@@ -10,16 +10,42 @@ const PRICE_MAP: Record<string, string | undefined> = {
   SCALE: process.env.STRIPE_PRICE_SCALE,
 };
 
-/** module id → env var name holding its Stripe Price ID (see resource.ts). */
-const MODULE_PRICE_ENV: Record<string, string> = JSON.parse(
-  process.env.MODULE_PRICE_ENV || '{}'
+/**
+ * module id → Stripe Price id, from the one STRIPE_MODULE_PRICES secret
+ * (see resource.ts). Absent when this environment sells no module.
+ */
+function parsePrices(raw: string | undefined): Record<string, string> {
+  if (!raw) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).filter(
+        (e): e is [string, string] => typeof e[1] === 'string' && e[1].length > 0
+      )
+    );
+  } catch {
+    return {};
+  }
+}
+const MODULE_PRICES = parsePrices(process.env.STRIPE_MODULE_PRICES);
+
+/**
+ * Module ids checkout may sell in this environment (see
+ * amplify/data/sellable.ts). Everything else is a preview: the UI never
+ * offers it, and this refusal covers a call that goes around the UI.
+ */
+const SELLABLE_MODULES = new Set<string>(
+  JSON.parse(process.env.SELLABLE_MODULES || '[]')
 );
 
 const APP_URL = process.env.APP_URL || 'http://localhost:3000';
 
 function modulePriceId(moduleId: string): string {
-  const envName = MODULE_PRICE_ENV[moduleId];
-  const priceId = envName ? process.env[envName] : undefined;
+  if (!SELLABLE_MODULES.has(moduleId)) {
+    throw new Error(`Module "${moduleId}" is not for sale yet.`);
+  }
+  const priceId = MODULE_PRICES[moduleId];
   if (!priceId) {
     throw new Error(
       `Module "${moduleId}" is not purchasable: no price configured.`

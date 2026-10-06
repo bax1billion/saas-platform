@@ -22,7 +22,7 @@ export const activeModules: ModuleDef[] = modules.filter(
 /**
  * Add-on modules that are actually for sale — rendered on the surfaces that
  * start a checkout (/subscribe, billing settings). A `planned` add-on has
- * no Stripe Price behind it yet (`verticalModulePriceSecrets`), so offering
+ * no Stripe Price behind it yet (`STRIPE_MODULE_PRICES`), so offering
  * it would fail at checkout: it ships routes and can be granted via an
  * operator entitlement override, but it is never listed as purchasable.
  * See `isPreview`.
@@ -32,12 +32,11 @@ export const addonModules: ModuleDef[] = modules.filter(
 );
 
 /**
- * Every add-on worth naming on marketing surfaces — the purchasable ones
- * plus previews. The homepage pricing strip uses this so the lineup reads
- * complete; a preview shows its `Preview` badge where a price would go and
- * links to its marketing page, never to checkout. The operator entitlement
- * card uses it too, so a preview can be comped before it is sellable.
- * Anything that can start a checkout must use `addonModules` instead.
+ * Every add-on worth naming on in-app surfaces — the purchasable ones plus
+ * previews. The operator entitlement card uses it so a preview can be
+ * comped before it is sellable. Anything that can start a checkout must use
+ * `addonModules` instead. The public site never distinguishes previews:
+ * every product is presented the same way there.
  */
 export const marketedAddonModules: ModuleDef[] = modules.filter(
   (m) => m.availability === "addon"
@@ -45,8 +44,8 @@ export const marketedAddonModules: ModuleDef[] = modules.filter(
 
 /**
  * True while a module ships routes but is not yet for sale — the app shows
- * it (locked, next to the modules an org owns) and marketing keeps the soft
- * "notify me" CTA instead of a buy button.
+ * it (locked, next to the modules an org owns) with a status chip instead
+ * of a buy button.
  */
 export function isPreview(m: ModuleDef): boolean {
   return m.availability !== "coming-soon" && m.stage === "planned";
@@ -54,6 +53,46 @@ export function isPreview(m: ModuleDef): boolean {
 
 export function getModule(id: string): ModuleDef | undefined {
   return modules.find((m) => m.id === id);
+}
+
+/** Public URL segment for the module's marketing page. */
+export function productSlug(m: ModuleDef): string {
+  return m.slug ?? m.id;
+}
+
+/** Public marketing path for the module (the foundation page is app/modules/[id]). */
+export function productPath(m: ModuleDef): string {
+  return `/modules/${productSlug(m)}`;
+}
+
+export function getModuleBySlug(slug: string): ModuleDef | undefined {
+  return modules.find((m) => productSlug(m) === slug);
+}
+
+/** Plain name with a fallback to the tagline for registries that omit it. */
+export function plainName(m: ModuleDef): string {
+  return m.plainName ?? m.tagline;
+}
+
+/**
+ * The lineup arcs in registry order. Modules without a group fall under
+ * "Modules" so a product with no grouping still renders one section.
+ */
+export const arcs: string[] = [
+  ...new Set(modules.map((m) => m.group ?? "Modules")),
+];
+
+export function modulesByArc(arc: string): ModuleDef[] {
+  return modules.filter((m) => (m.group ?? "Modules") === arc);
+}
+
+/**
+ * The group's colour token (config/theme.css `--group-<id>`), for headers,
+ * chips and boards. Falls back to the current foreground for an unknown or
+ * missing group. A product keeps its own accent; the two never swap.
+ */
+export function arcAccent(arc: string | undefined): string {
+  return arc ? `var(--group-${arc.toLowerCase().replace(/[^a-z0-9]+/g, "-")}, currentColor)` : "currentColor";
 }
 
 /** The module whose basePath is a prefix of the given pathname, if any. */
@@ -104,7 +143,7 @@ export function resolveEntitledModules(
   return entitled;
 }
 
-/** Human label for the availability badge. */
+/** Human label for the availability badge (app shell only). */
 export function availabilityLabel(m: ModuleDef): string {
   switch (m.availability) {
     case "included":

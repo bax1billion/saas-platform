@@ -4,9 +4,12 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Lock } from "lucide-react";
-import { getModule, availabilityLabel, isPreview, type ModuleDef } from "@/lib/modules";
+import { getModule, availabilityLabel, isPreview, productPath, type ModuleDef, type ModuleNavItem } from "@/lib/modules";
+import { activeNavHref } from "@/lib/modules/active-nav";
 import { cn } from "@/lib/utils";
+import { useAuth } from "./AuthContext";
 import { useEntitlements } from "./EntitlementsContext";
+import { canManageOrg } from "@/lib/roles";
 import ModuleIcon from "./ModuleIcon";
 
 const stageLabel: Record<ModuleDef["stage"], string | null> = {
@@ -16,6 +19,9 @@ const stageLabel: Record<ModuleDef["stage"], string | null> = {
 };
 
 function ModuleLocked({ module }: { module: ModuleDef }) {
+  const { user } = useAuth();
+  // Members never see a price or a buy button. Admins and operators do.
+  const manager = canManageOrg(user?.groups);
   return (
     <div className="mx-auto max-w-3xl px-6 py-16">
       <div
@@ -50,9 +56,14 @@ function ModuleLocked({ module }: { module: ModuleDef }) {
             </li>
           ))}
         </ul>
+        {!manager && (
+          <p className="mt-6 text-sm text-muted-foreground">
+            {module.name} is not on your organization&apos;s plan yet. An admin can add it.
+          </p>
+        )}
         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
           {/* A preview module has no price behind it yet — don't offer to sell it. */}
-          {!isPreview(module) && (
+          {manager && !isPreview(module) && (
             <Link
               href={`/subscribe?module=${module.id}`}
               className="inline-flex items-center justify-center rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
@@ -62,14 +73,16 @@ function ModuleLocked({ module }: { module: ModuleDef }) {
             </Link>
           )}
           <Link
-            href={`/modules/${module.id}`}
+            href={productPath(module)}
             className="inline-flex items-center justify-center rounded-lg border border-border px-6 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted"
           >
             Learn more
           </Link>
-          <span className="text-xs text-muted-foreground sm:ml-auto">
-            {availabilityLabel(module)}
-          </span>
+          {manager && (
+            <span className="text-xs text-muted-foreground sm:ml-auto">
+              {availabilityLabel(module)}
+            </span>
+          )}
         </div>
       </div>
     </div>
@@ -80,13 +93,25 @@ function ModuleLocked({ module }: { module: ModuleDef }) {
  * Wraps every route of a module: enforces entitlement (rendering the
  * upsell panel when the org lacks the module) and renders the module
  * header with its tab navigation from the registry.
+ *
+ * `navOverride` and `headerExtra` are optional, additive escape hatches —
+ * every existing caller that omits them renders byte-identical to before.
+ * A module whose tabs and their labels change with something other than
+ * the URL (a Field/Station/Admin door switch) passes its own computed
+ * `nav` array as `navOverride` and a control (the door toggle) as
+ * `headerExtra`, instead of `ModuleShell` growing a module-specific
+ * concept of "mode".
  */
 export default function ModuleShell({
   moduleId,
   children,
+  navOverride,
+  headerExtra,
 }: {
   moduleId: string;
   children: ReactNode;
+  navOverride?: ModuleNavItem[];
+  headerExtra?: ReactNode;
 }) {
   const pathname = usePathname();
   const { hasModule, isLoading } = useEntitlements();
@@ -111,6 +136,8 @@ export default function ModuleShell({
   }
 
   const stage = stageLabel[mod.stage];
+  const nav = navOverride ?? mod.nav;
+  const activeHref = activeNavHref(nav, pathname);
 
   return (
     <div className="flex min-h-full flex-col">
@@ -125,11 +152,11 @@ export default function ModuleShell({
               {stage}
             </span>
           )}
+          {headerExtra && <div className="ml-auto">{headerExtra}</div>}
         </div>
         <nav className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-6 pt-3">
-          {mod.nav.map((item) => {
-            const active =
-              pathname === item.href || pathname.startsWith(`${item.href}/`);
+          {nav.map((item) => {
+            const active = item.href === activeHref;
             const Icon = item.icon;
             return (
               <Link

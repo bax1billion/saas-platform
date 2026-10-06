@@ -62,16 +62,29 @@ Tenant isolation is enforced at three levels:
 1. **Application layer (primary, current):** every list/get query includes the
    authenticated user's `orgId` from their claims.
 2. **Auth rules:** Cognito group-based rules at the model level.
-3. **Resolver-level enforcement (future defense in depth):** custom resolvers
-   can inject `orgId` filtering.
+3. **Resolver-level enforcement:** APPSYNC_JS pipeline steps on selected
+   models — the entitlement gate on mutations, and **record-level access**
+   (`docs/record-access.md`) on a policed root model and its children,
+   which also checks the caller's org against the record's `orgId` on
+   every read and write.
 
-Two kinds of models are deliberately *not* tenant-scoped:
+Three kinds of models are deliberately *not* tenant-scoped:
 
 - **Pre-auth models** (`NewsletterSubscriber`) — anonymous visitors have no
   org yet.
 - **Platform/ops models** (`StripeWebhookEvent`) — `orgId` is optional and
   resolved after the fact; the record must exist even when the org lookup
   fails.
+- **Platform reference data** (a `ReferenceDocument`-style model) — content
+  the platform maintains and every tenant reads, such as a jurisdiction's
+  published code. No `orgId`; partitioned by a computed key for the
+  dimension tenants look it up by (jurisdiction), read-only to every group,
+  written only over IAM. It is shared rows, not per-org seeded copies,
+  precisely because tenants must never edit it and a revision should land
+  once. Keep it out of `verticalStreamTables` (nothing to attribute to an
+  org) and never put a tenant-editable column on it — the moment a tenant
+  needs to adopt, hide or annotate a row, that is a small org-scoped model
+  of its own pointing at the reference row by id.
 
 An optional second scoping level exists via `Site` (a location/facility within
 an org). Models that support per-site partitioning carry an optional
@@ -259,6 +272,18 @@ Sharp edges to respect:
    denormalized onto the model when the identity lives elsewhere. Group
    rules cost none of this; membership is already a token claim.
 
+7. **Never send `id` on a create.** Once any column carries a field rule,
+   the create resolver checks every input field against an explicit
+   allowed list built from the fields, and the implicit `id` is not on it;
+   a create that sends `id` fails with `Unauthorized on [id]`. Declaring
+   `id: a.id().required().authorization(...)` does let it through, but it
+   adds an init function to every mutation pipeline, and a model behind the
+   entitlement and record-access steps already has ten (AppSync's hard
+   limit: "A resolver can only be composed of 10 functions"). Create the
+   row first and use the server's id for whatever needed it (an upload:
+   the row is created with its storage key, then the object is uploaded
+   with the row id as `media-id` metadata so the ingest trigger finds it).
+
 > **Confidence note (2026-09-12).** The mechanism above is read from
 > `graphql-auth-transformer` source, not from a reproduction. Five
 > configurations were tried against `npm run check:backend` — a read-only
@@ -295,6 +320,25 @@ at-least-once with retries. A synchronous command mutation is the
 exception, for when a request has to be rejected before anything is
 written; it re-checks tenancy by hand and owns its own cleanup on partial
 failure. See `docs/modules.md` → "Backend business logic".
+
+7. **A `.default()` on a field-ruled column is applied *before* the
+   field-auth check.** The generated create pipeline runs `init` (which
+   puts every default into `$ctx.args.input`) before `auth0` (which
+   denies any input key outside the caller's allowed fields). A read-only
+   column with a default therefore fails **every** Cognito create with
+   `Unauthorized on [column]`. It only works when every creator is a
+   Lambda (a row born from a command over IAM). Server-owned lifecycle
+   columns on client-created rows are nullable with no default; a literal
+   born value is set by a pipeline step. Verified in the synthesized
+   resolvers on 2026-09-21 — `docs/submit-then-verify.md` §8 quotes the
+   templates.
+
+**The lifecycle form of this — a row the client may create but whose
+`status` is a read-only column born null and advanced only by a stream
+handler — is written up as its own pattern in
+[`docs/submit-then-verify.md`](submit-then-verify.md), with the Gen 1
+origin, the Gen 2 shape, and the places it fits better than a command or
+a pipeline step.**
 
 ### 2.6 Stripe-mirroring conventions
 
@@ -646,6 +690,23 @@ webhooks are safe (see 2.6).
 
 **Authorization:** `Admin` read only; writes only via the webhook Lambda's
 schema-level grant. Immutable audit trail.
+
+### TesterFlag
+
+Flag it: a tester's report filed from any screen with where they were
+(`product`, `screen`, `role`, `device`, `version`) and two answers
+(`happened`, `expected`). Any signed-in person may create; Admin and
+Operator read and update `status`. Streams to the audit trail. The shell
+mounts `app/components/FlagIt.tsx` on every signed-in screen.
+
+### AssistEvent, AssistUsage, ExportJob
+
+The shared services' core rows (`docs/spine-services-design.md`): one
+`AssistEvent` per Assist run (helper, prompt version, model, input hash,
+output, decision), one `AssistUsage` row per org per month (the cost
+meter), one `ExportJob` per export (the document model, the rendered
+file's key, hash and page count). All three are Lambda-written and read by
+the org groups; subscriptions are disabled.
 
 ---
 

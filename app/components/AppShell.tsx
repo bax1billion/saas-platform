@@ -1,23 +1,25 @@
 "use client";
 
 import { useState, type CSSProperties, type ReactNode } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Settings,
   CreditCard,
-  Lock,
   LogOut,
   Menu,
   X,
 } from "lucide-react";
 import { siteConfig } from "@/config/site";
-import { activeModules, getModuleByPath, type ModuleDef } from "@/lib/modules";
+import { activeModules, getModuleByPath, isPreview, type ModuleDef } from "@/lib/modules";
 import { cn } from "@/lib/utils";
 import { useAuth } from "./AuthContext";
 import { useEntitlements } from "./EntitlementsContext";
 import ModuleIcon from "./ModuleIcon";
+import FlagIt from "./FlagIt";
+import { canManageOrg } from "@/lib/roles";
 import PastDueBanner from "./PastDueBanner";
 import SubscriptionRequiredBanner from "./SubscriptionRequiredBanner";
 import { Toaster } from "@/components/ui/sonner";
@@ -86,6 +88,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const { user, handleSignOut } = useAuth();
   const { org, hasModule, status, needsSubscription } = useEntitlements();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const manager = canManageOrg(user?.groups);
 
   const currentModule = getModuleByPath(pathname);
   const shellStyle = {
@@ -105,7 +108,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         onClick={close}
         className="flex items-center gap-2.5 px-3 py-2 font-serif text-lg font-bold text-sidebar-accent-foreground"
       >
-        <img
+        <Image
           src="/logo.png"
           alt={siteConfig.product.name}
           width={28}
@@ -132,28 +135,39 @@ export default function AppShell({ children }: { children: ReactNode }) {
           Dashboard
         </NavLink>
 
-        {moduleGroups.map(([label, mods]) => (
-          <div key={label}>
-            <SectionLabel>{label}</SectionLabel>
-            {mods.map((m) => {
-              const entitled = hasModule(m.id);
-              return (
-                <NavLink
-                  key={m.id}
-                  href={m.basePath}
-                  active={isActive(m.basePath)}
-                  onClick={close}
-                >
-                  <ModuleIcon module={m} size="sm" />
-                  <span className="flex-1 truncate">{m.name}</span>
-                  {!entitled && (
-                    <Lock className="h-3.5 w-3.5 text-sidebar-foreground/50" />
-                  )}
-                </NavLink>
-              );
-            })}
-          </div>
-        ))}
+        {moduleGroups.map(([label, mods]) => {
+          // Members see the modules their org has. Admins and operators
+          // also see the rest of the lineup with a status chip, never a lock
+          // or a price in the rail.
+          const shown = mods.filter((m) => hasModule(m.id) || manager);
+          if (shown.length === 0) return null;
+          return (
+            <div key={label}>
+              <SectionLabel>{label}</SectionLabel>
+              {shown.map((m) => {
+                const entitled = hasModule(m.id);
+                return (
+                  <NavLink
+                    key={m.id}
+                    href={m.basePath}
+                    active={isActive(m.basePath)}
+                    onClick={close}
+                  >
+                    <ModuleIcon module={m} size="sm" onDark />
+                    <span className={cn("flex-1 truncate", !entitled && "text-sidebar-foreground/70")}>
+                      {m.name}
+                    </span>
+                    {!entitled && (
+                      <span className="rounded-full border border-sidebar-border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sidebar-foreground/60">
+                        {isPreview(m) ? "Preview" : "Add-on"}
+                      </span>
+                    )}
+                  </NavLink>
+                );
+              })}
+            </div>
+          );
+        })}
 
         <SectionLabel>Settings</SectionLabel>
         <NavLink
@@ -164,17 +178,23 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <Settings className="h-4 w-4" />
           Organization
         </NavLink>
-        <NavLink
-          href="/settings/billing"
-          active={isActive("/settings/billing")}
-          onClick={close}
-        >
-          <CreditCard className="h-4 w-4" />
-          Billing
-        </NavLink>
+        {manager && (
+          <NavLink
+            href="/settings/billing"
+            active={isActive("/settings/billing")}
+            onClick={close}
+          >
+            <CreditCard className="h-4 w-4" />
+            Billing
+          </NavLink>
+        )}
       </nav>
 
       <div className="mt-4 border-t border-sidebar-border pt-4">
+        {/* Flag it on every screen: the shell owns it so testers never hunt for it. */}
+        <div className="mb-3 px-3">
+          <FlagIt className="w-full justify-center border-sidebar-border text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground" />
+        </div>
         <div className="flex items-center gap-3 px-3">
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sidebar-primary text-sm font-semibold text-sidebar-primary-foreground">
             {initial}

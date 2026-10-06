@@ -115,6 +115,17 @@ Frontend displays result for user review
 
 ---
 
+## As built (2026-10-05)
+
+The inline pattern below is implemented as the Assist service:
+`docs/spine-services-design.md` § 2 has the pieces and how to add a
+helper. In short: a helper file in the owning module's
+`amplify/functions/<module>-shared/` (access check, allow list, prompt,
+schema, parser), one line in `amplify/data/assist-helpers.ts`, the
+`assistRun` and `assistDecide` mutations, the `useAssist` hook and the
+`AssistSuggestion` component on the screen. The provider decision is made:
+Amazon Bedrock through the Converse API, model ids from the environment.
+
 ## LLM Provider
 
 | Option | Fit |

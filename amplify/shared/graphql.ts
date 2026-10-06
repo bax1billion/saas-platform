@@ -71,3 +71,35 @@ export async function graphql<T = unknown>(
   }
   return json.data as T;
 }
+
+/** Drain a paginated list query. */
+export async function listAll<T>(
+  query: string,
+  variables: Record<string, unknown>,
+  pick: (data: Record<string, unknown>) => { items: T[]; nextToken?: string | null }
+): Promise<T[]> {
+  const out: T[] = [];
+  let nextToken: string | null | undefined;
+  do {
+    const data = await graphql<Record<string, unknown>>(query, { ...variables, nextToken });
+    const page = pick(data);
+    out.push(...page.items);
+    nextToken = page.nextToken;
+  } while (nextToken);
+  return out;
+}
+
+/** Drain a `<field>(…, limit, nextToken)` list query by field name. */
+export const listByField = <T>(
+  field: string,
+  args: string,
+  vars: string,
+  fields: string,
+  variables: Record<string, unknown>,
+  limit = 1000
+) =>
+  listAll<T>(
+    `query L(${args}, $nextToken: String) { ${field}(${vars}, limit: ${limit}, nextToken: $nextToken) { items { ${fields} } nextToken } }`,
+    variables,
+    (d) => d[field] as { items: T[]; nextToken?: string | null }
+  );

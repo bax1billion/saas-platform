@@ -6,25 +6,31 @@ const sizes = {
   lg: { box: "h-11 w-11 rounded-lg", icon: "h-6 w-6" },
 } as const;
 
-/** The module's icon in a tile tinted with the module accent. */
+/**
+ * The module's icon on a neutral tile, drawn in the module's accent. The
+ * accent is the identity, so it colors the mark and nothing else: a
+ * product color is never a background (Brand Book v2 §6). On the dark
+ * sidebar the tile picks up the sidebar's own surface.
+ */
 export default function ModuleIcon({
   module,
   size = "md",
   className = "",
+  onDark = false,
 }: {
   module: ModuleDef;
   size?: keyof typeof sizes;
   className?: string;
+  onDark?: boolean;
 }) {
   const Icon = module.icon;
   const s = sizes[size];
   return (
     <span
-      className={`inline-flex shrink-0 items-center justify-center ${s.box} ${className}`}
-      style={{
-        backgroundColor: `color-mix(in srgb, ${module.accent} 14%, transparent)`,
-        color: module.accent,
-      }}
+      className={`inline-flex shrink-0 items-center justify-center border ${s.box} ${
+        onDark ? "border-sidebar-border bg-sidebar-accent/40" : "border-border bg-card"
+      } ${className}`}
+      style={{ color: module.accent }}
     >
       <Icon className={s.icon} strokeWidth={1.75} />
     </span>
