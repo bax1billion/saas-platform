@@ -86,8 +86,18 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Initial session load. The state writes happen after the Amplify calls
+  // resolve, never synchronously inside the effect, and a stale result is
+  // dropped if the provider unmounts first.
   useEffect(() => {
-    refreshUser().finally(() => setIsLoading(false));
+    let cancelled = false;
+    void (async () => {
+      await refreshUser();
+      if (!cancelled) setIsLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [refreshUser]);
 
   const handleSignOut = async () => {

@@ -1,5 +1,5 @@
 import { ImageResponse } from "next/og";
-import { getPostBySlug, getAllPosts } from "@/lib/blog";
+import { getPostBySlug } from "@/lib/blog";
 import { siteConfig, ogTheme } from "@/config/site";
 
 export const alt = `${siteConfig.product.name} Blog`;

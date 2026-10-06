@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildVariantUrl, type MediaAccess } from "./media-cdn";
+import { buildOriginalUrl, buildVariantUrl, type MediaAccess } from "./media-cdn";
 
 const access: MediaAccess = {
   enabled: true,
@@ -30,5 +30,28 @@ describe("buildVariantUrl", () => {
   it("returns null when access is disabled or incomplete", () => {
     expect(buildVariantUrl({ enabled: false }, "k")).toBeNull();
     expect(buildVariantUrl({ enabled: true, domain: "d" }, "k")).toBeNull();
+  });
+
+  it("open mode (empty params) yields an unsigned CDN URL, never S3", () => {
+    const open: MediaAccess = { enabled: true, domain: "d123.cloudfront.net", params: "", expiresAt: null };
+    expect(buildVariantUrl(open, "uploads/c1/a.jpg", { w: 192 })).toBe("https://d123.cloudfront.net/uploads/c1/a.jpg?w=192");
+    expect(buildVariantUrl(open, "uploads/c1/a.jpg")).toBe("https://d123.cloudfront.net/uploads/c1/a.jpg");
+  });
+});
+
+describe("buildOriginalUrl", () => {
+  it("inserts the /original/ marker after the entity segment and keeps the case grant", () => {
+    expect(buildOriginalUrl(access, "uploads/c1/abc-IMG_0431.MOV")).toBe(
+      "https://d123.cloudfront.net/uploads/c1/original/abc-IMG_0431.MOV?Policy=P&Signature=S&Key-Pair-Id=K"
+    );
+  });
+  it("stays under the signed prefix so the wildcard policy matches", () => {
+    const url = buildOriginalUrl(access, "uploads/c1/a b.mp4")!;
+    expect(url.startsWith("https://d123.cloudfront.net/uploads/c1/")).toBe(true);
+    expect(url).toContain("/original/a%20b.mp4?");
+  });
+  it("returns null for malformed keys or disabled access", () => {
+    expect(buildOriginalUrl(access, "uploads/c1")).toBeNull();
+    expect(buildOriginalUrl({ enabled: false }, "uploads/c1/a.jpg")).toBeNull();
   });
 });

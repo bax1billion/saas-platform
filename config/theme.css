@@ -36,6 +36,10 @@
   --accent-foreground: var(--navy);
   --destructive: var(--red);
   --destructive-foreground: #ffffff;
+  --card: #ffffff;
+  --card-foreground: var(--navy);
+  --popover: #ffffff;
+  --popover-foreground: var(--navy);
   --border: #00336619;
   --input: #00336626;
   --ring: var(--emerald);
@@ -90,6 +94,10 @@
   --accent-foreground: #e6edf5;
   --destructive: #f07575;
   --destructive-foreground: #04121f;
+  --card: #0f1c30;
+  --card-foreground: #e6edf5;
+  --popover: #0f1c30;
+  --popover-foreground: #e6edf5;
   --border: #ffffff1a;
   --input: #ffffff24;
   --ring: #00a37e;

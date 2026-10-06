@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/app/components/AuthContext";
@@ -52,7 +53,7 @@ function OnboardingForm() {
 
   return (
     <div className="w-full max-w-md rounded-2xl border border-border bg-background p-8 shadow-sm">
-      <img
+      <Image
         src="/logo.png"
         alt={siteConfig.product.name}
         width={40}

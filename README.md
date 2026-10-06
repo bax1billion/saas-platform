@@ -61,4 +61,9 @@ Set via `npx ampx sandbox secret set <NAME>` (see `.env.local` for the frontend 
 - [`docs/core-data-model.md`](docs/core-data-model.md) — foundation data model and schema conventions
 - [`docs/subscriptions-and-payments.md`](docs/subscriptions-and-payments.md) — billing + entitlements design
 - [`docs/modules.md`](docs/modules.md) — the module pattern: registry, app shell, entitlements, add-on billing
+- [`docs/data-coupling.md`](docs/data-coupling.md) — data ownership between modules: core tier, single writer, contracts, events, allowed copies
+- [`docs/record-access.md`](docs/record-access.md) — record-level access: per-row view/edit policies in the AppSync pipeline
+- [`docs/submit-then-verify.md`](docs/submit-then-verify.md) — client-created rows with a server-owned lifecycle
+- [`docs/operator-grants.md`](docs/operator-grants.md) — runbook: enabling a module for one customer without a purchase
+- [`docs/spine-services-design.md`](docs/spine-services-design.md) — the shared services: notifications (planned), Assist on Bedrock, document export
 - [`CDK_WIRING_DEPLOY.md`](CDK_WIRING_DEPLOY.md) — how the custom CDK wiring avoids Amplify circular-dependency pitfalls

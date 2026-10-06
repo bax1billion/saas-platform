@@ -233,7 +233,7 @@ export default function AuthModal() {
     "mt-1 w-full rounded-lg border border-foreground/15 px-3.5 py-2.5 text-sm text-foreground placeholder:text-foreground/30 focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring";
 
   const submitBtnClass =
-    "w-full rounded-lg bg-primary px-6 py-3 text-base font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-60";
+    "w-full rounded-lg bg-primary px-6 py-3 text-base font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60";
 
   return (
     <div

@@ -115,8 +115,42 @@ export function createMediaCdn(stack: Stack, props: MediaCdnProps) {
     );
   }
 
+  // ── Originals origin: CloudFront → S3 directly, streaming + range ─────
+  // Imported by name on purpose: CDK cannot edit an imported bucket's
+  // policy, which is what we want — the OAC grant lives on the real bucket
+  // in the storage stack (amplify/backend.ts #4b) with an account-wide
+  // distribution condition, so neither stack references the other's ids.
+  const originalsRef = s3.Bucket.fromBucketName(
+    stack,
+    'MediaOriginalsOriginRef',
+    props.originalsBucket.bucketName
+  );
+  const originalsViewerFn = new cloudfront.Function(stack, 'MediaOriginalsViewerFn', {
+    runtime: cloudfront.FunctionRuntime.JS_2_0,
+    comment: 'Media CDN originals: access mode, prefix whitelist, strip /original/ segment',
+    code: cloudfront.FunctionCode.fromInline(
+      buildOriginalsViewerFunctionCode(mode, props.allowedPrefixes)
+    ),
+  });
+
   const distribution = new cloudfront.Distribution(stack, 'MediaDistribution', {
-    comment: 'Media CDN (image variants)',
+    comment: 'Media CDN (image variants + originals)',
+    additionalBehaviors: {
+      // /<prefix>/<entity>/original/<file> → the untouched object, served
+      // by S3 through CloudFront with range requests (video/audio playback,
+      // "open original"). S3 is upload and origin only — every read is here.
+      '*/original/*': {
+        origin: origins.S3BucketOrigin.withOriginAccessControl(originalsRef),
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
+        allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        compress: false,
+        functionAssociations: [
+          { function: originalsViewerFn, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST },
+        ],
+        trustedKeyGroups: keyGroups.length > 0 ? keyGroups : undefined,
+      },
+    },
     defaultBehavior: {
       origin: new origins.OriginGroup({
         primaryOrigin:
@@ -165,6 +199,51 @@ export function createMediaCdn(stack: Stack, props: MediaCdnProps) {
     /** Key-Pair-Id the URL signer must use ('' unless mode is signed). */
     keyPairId: publicKey?.publicKeyId ?? '',
   };
+}
+
+/**
+ * Viewer-request function for the originals behavior. The request URI is
+ *   /<prefix>/<entity>/original/<file…>
+ * — the `original` segment selects the behavior; this strips it so the
+ * origin path equals the S3 key, checks the prefix whitelist, and drops
+ * transform params (meaningless here) while preserving signed-URL auth
+ * params, exactly like the variant function.
+ */
+function buildOriginalsViewerFunctionCode(
+  mode: 'signed' | 'open' | 'closed',
+  allowedPrefixes: string[]
+): string {
+  const prefixes = JSON.stringify(allowedPrefixes);
+  const closed = mode === 'closed';
+  return [
+    'function handler(event) {',
+    '  var request = event.request;',
+    `  if (${closed}) {`,
+    "    return { statusCode: 403, statusDescription: 'Forbidden', headers: { 'content-type': { value: 'text/plain' } } };",
+    '  }',
+    `  var prefixes = ${prefixes};`,
+    '  var uri = request.uri;',
+    "  var marker = '/original/';",
+    '  var at = uri.indexOf(marker);',
+    "  if (at < 1 || uri.indexOf('..') !== -1) {",
+    "    return { statusCode: 403, statusDescription: 'Forbidden' };",
+    '  }',
+    "  var key = uri.substring(0, at) + '/' + uri.substring(at + marker.length);",
+    '  var allowed = false;',
+    '  for (var i = 0; i < prefixes.length; i++) {',
+    "    if (key.indexOf('/' + prefixes[i]) === 0) { allowed = true; break; }",
+    '  }',
+    '  if (!allowed) {',
+    "    return { statusCode: 403, statusDescription: 'Forbidden' };",
+    '  }',
+    '  request.uri = key;',
+    '  delete request.querystring.w;',
+    '  delete request.querystring.h;',
+    '  delete request.querystring.q;',
+    '  delete request.querystring.f;',
+    '  return request;',
+    '}',
+  ].join('\n');
 }
 
 /**

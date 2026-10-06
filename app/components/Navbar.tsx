@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import Image from "next/image";
+import Link from "next/link";
 import EarlyAccessButton from "./EarlyAccessButton";
 import { useAuth } from "./AuthContext";
 import { siteConfig } from "@/config/site";
@@ -31,10 +33,10 @@ export default function Navbar() {
   return (
     <nav className="sticky top-0 z-50 border-b border-muted bg-background/95 backdrop-blur-sm">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-        <a href="/" className="flex items-center gap-2 font-serif text-xl font-bold text-foreground">
-          <img src="/logo.png" alt={siteConfig.product.name} width={28} height={28} className="h-7 w-7" />
+        <Link href="/" className="flex items-center gap-2 font-serif text-xl font-bold text-foreground">
+          <Image src="/logo.png" alt={siteConfig.product.name} width={28} height={28} className="h-7 w-7" />
           {siteConfig.product.name}
-        </a>
+        </Link>
         <div className="flex items-center gap-6">
           {siteConfig.nav.main.map((item) => (
             <a

@@ -11,6 +11,10 @@ import { stripeWebhookHandlerFunction } from './functions/stripe-webhook-handler
 import { createCheckoutSessionFunction } from './functions/create-checkout-session/resource';
 import { createOrganizationFunction } from './functions/create-organization/resource';
 import { getMediaUrlsFunction } from './functions/get-media-urls/resource';
+import { exportRequestFunction } from './functions/export-request/resource';
+import { assistRunFunction } from './functions/assist-run/resource';
+import { createExportRenderer } from './custom/export-renderer/resource';
+import { normalizePublicKeyPem } from './custom/media-cdn/public-key';
 import { postConfirmation } from './auth/post-confirmation/resource';
 import {
   verticalStreamTables,
@@ -18,9 +22,12 @@ import {
   verticalModuleTables,
   verticalModuleMutations,
   verticalFunctions,
+  verticalRecordAccess,
+  applyVerticalBackend,
 } from './data/vertical';
 import { createMediaCdn } from './custom/media-cdn/resource';
 import { applyEntitlementEnforcement } from './data/entitlements/index';
+import { applyRecordAccess } from './data/record-access/index';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as s3 from 'aws-cdk-lib/aws-s3';
@@ -45,6 +52,8 @@ const backend = defineBackend({
   createCheckoutSessionFunction,
   createOrganizationFunction,
   getMediaUrlsFunction,
+  exportRequestFunction,
+  assistRunFunction,
   // Module-owned command handlers (amplify/data/vertical.ts)
   ...verticalFunctions,
 });
@@ -61,6 +70,15 @@ const backend = defineBackend({
 const { amplifyDynamoDbTables } = backend.data.resources.cfnResources;
 const dataStack = Stack.of(backend.data.resources.graphqlApi);
 
+// The export renderer (amplify/custom/export-renderer): a raw NodejsFunction
+// in the data stack, fed by the ExportJob stream below, reading originals
+// from and writing exports to the storage bucket (one-way data → storage
+// reference, the same direction as the S3 trigger).
+const exportRenderer = createExportRenderer(dataStack, {
+  jobTable: backend.data.resources.tables['ExportJob'],
+  bucket: backend.storage.resources.bucket,
+});
+
 const streamEventSources: Record<string, lambda.IFunction[]> = {
   Organization: [
     backend.eventLoggerFunction.resources.lambda,
@@ -70,6 +88,8 @@ const streamEventSources: Record<string, lambda.IFunction[]> = {
   Site: [backend.eventLoggerFunction.resources.lambda],
   OrgSubscription: [backend.eventLoggerFunction.resources.lambda],
   OrgEntitlementOverride: [backend.eventLoggerFunction.resources.lambda],
+  TesterFlag: [backend.eventLoggerFunction.resources.lambda],
+  ExportJob: [backend.eventLoggerFunction.resources.lambda, exportRenderer.fn],
   NewsletterSubscriber: [
     backend.eventLoggerFunction.resources.lambda,
     backend.newsletterSubscriberTriggerFunction.resources.lambda,
@@ -120,8 +140,10 @@ for (const tableName of Object.keys(streamEventSources)) {
 // EventSourceMappings use an AwsCustomResource to look up stream ARNs at
 // deploy time, since Custom::AmplifyDynamoDBTable doesn't expose StreamArn.
 for (const [tableName, functions] of Object.entries(streamEventSources)) {
+  // The table wrapper does not type its underlying CfnResource; narrow it
+  // without `any` so the cast stays visible.
   const dynamoTableName = (
-    (amplifyDynamoDbTables[tableName] as any).resource as CfnResource
+    (amplifyDynamoDbTables[tableName] as unknown as { resource: CfnResource }).resource
   ).ref;
 
   const describeCall: cr.AwsSdkCall = {
@@ -146,6 +168,16 @@ for (const [tableName, functions] of Object.entries(streamEventSources)) {
       ]),
     }
   );
+
+  // Re-resolve on EVERY deploy. The Amplify table manager can replace a
+  // table's stream when it updates the table (a GSI add does this); the old
+  // stream goes DISABLED and a LatestStreamArn cached from an earlier deploy
+  // then fails with "You cannot create a lambda mapping on a stream that is
+  // Disabled". The provider ignores unknown top-level properties, so a
+  // per-deploy value here makes CloudFormation call onUpdate each time; the
+  // mapping below is replaced only when the ARN actually changed.
+  (streamLookup.node.findChild('Resource').node.defaultChild as CfnResource)
+    .addPropertyOverride('ResolvedAt', new Date().toISOString());
 
   const streamArn = streamLookup.getResponseField('Table.LatestStreamArn');
 
@@ -200,6 +232,8 @@ const allTriggerFunctions = [
   backend.createCheckoutSessionFunction,
   backend.createOrganizationFunction,
   backend.getMediaUrlsFunction,
+  backend.exportRequestFunction,
+  backend.assistRunFunction,
   // Module command handlers. Their keys come from the vertical seam, so
   // they're dynamic by construction and the backend object has no literal
   // key type to index with — they resolve to the same function-resource
@@ -274,6 +308,41 @@ console.log(
 );
 
 // ═══════════════════════════════════════════════════════════════════
+// #3c Record-level access enforcement (docs/record-access.md)
+// APPSYNC_JS steps on a root model's reads and writes and on its
+// children's, driven by the product's decision snippet
+// (`verticalRecordAccess`). Runs after the entitlement steps so gated
+// mutations reuse the resolved org. IAM callers bypass.
+// ═══════════════════════════════════════════════════════════════════
+
+const recordAccess = applyRecordAccess(backend.data.resources, verticalRecordAccess);
+console.log(`Record access enforcement on ${recordAccess.gatedFields.length} fields`);
+
+// ═══════════════════════════════════════════════════════════════════
+// #3d Product-owned backend wiring (amplify/data/vertical.ts)
+// Anything a product must do in CDK beyond what the seams above declare
+// — its own APPSYNC_JS pipeline steps, a Step Functions workflow next to a
+// module Lambda, extra environment on a module function — lives in
+// `applyVerticalBackend`, so this file stays product-free. The foundation
+// default is a no-op. Runs after every foundation pipeline step so a
+// product step sees the resolved caller/org the same way #3c does.
+// ═══════════════════════════════════════════════════════════════════
+
+applyVerticalBackend({
+  data: backend.data.resources,
+  dataStack,
+  rootStack: backend.stack,
+  bucket: backend.storage.resources.bucket,
+  functions: Object.fromEntries(
+    Object.keys(verticalFunctions).map((key) => [
+      key,
+      (backend as unknown as Record<string, typeof backend.eventLoggerFunction>)[key].resources
+        .lambda as lambda.Function,
+    ])
+  ),
+});
+
+// ═══════════════════════════════════════════════════════════════════
 // #4 S3 Event Notifications
 // Uses AwsCustomResource to set bucket notifications from the data
 // stack, avoiding the data↔storage circular dependency that
@@ -308,6 +377,51 @@ s3TriggerLambda.addToRolePolicy(
 );
 
 s3TriggerLambda.addEnvironment('STORAGE_BUCKET_NAME', bucket.bucketName);
+
+// The export-request function presigns downloads of finished exports; the
+// signature is only as good as the role's own GetObject on exports/.
+const exportRequestLambda = backend.exportRequestFunction.resources.lambda as lambda.Function;
+exportRequestLambda.addToRolePolicy(
+  new iam.PolicyStatement({
+    actions: ['s3:GetObject'],
+    resources: [`arn:aws:s3:::${bucket.bucketName}/exports/*`],
+  })
+);
+exportRequestLambda.addEnvironment('EXPORTS_BUCKET', bucket.bucketName);
+
+// ═══════════════════════════════════════════════════════════════════
+// Assist (docs/spine-services-design.md § 2): Bedrock through the
+// assist-run function. Model ids are inference profiles set per
+// environment; ASSIST_MODE is off until an environment opts in, so a
+// fresh account deploys with Assist dark. The function reads originals
+// under uploads/ for image helpers.
+// ═══════════════════════════════════════════════════════════════════
+const assistLambda = backend.assistRunFunction.resources.lambda as lambda.Function;
+assistLambda.addToRolePolicy(
+  new iam.PolicyStatement({
+    actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream', 'bedrock:ApplyGuardrail'],
+    resources: [
+      'arn:aws:bedrock:*::foundation-model/*',
+      `arn:aws:bedrock:*:${backend.stack.account}:inference-profile/*`,
+      `arn:aws:bedrock:${backend.stack.region}:${backend.stack.account}:guardrail/*`,
+    ],
+  })
+);
+assistLambda.addToRolePolicy(
+  new iam.PolicyStatement({
+    actions: ['s3:GetObject'],
+    resources: [`arn:aws:s3:::${bucket.bucketName}/uploads/*`],
+  })
+);
+assistLambda.addEnvironment('MEDIA_BUCKET', bucket.bucketName);
+assistLambda.addEnvironment('ASSIST_MODE', process.env.ASSIST_MODE ?? 'off');
+assistLambda.addEnvironment('ASSIST_MODEL_FAST', process.env.ASSIST_MODEL_FAST ?? 'us.anthropic.claude-haiku-4-5-20251001-v1:0');
+assistLambda.addEnvironment('ASSIST_MODEL_DRAFT', process.env.ASSIST_MODEL_DRAFT ?? 'us.anthropic.claude-sonnet-4-5-20250929-v1:0');
+assistLambda.addEnvironment('ASSIST_MONTHLY_RUN_CAP', process.env.ASSIST_MONTHLY_RUN_CAP ?? '500');
+if (process.env.ASSIST_GUARDRAIL_ID) {
+  assistLambda.addEnvironment('ASSIST_GUARDRAIL_ID', process.env.ASSIST_GUARDRAIL_ID);
+  assistLambda.addEnvironment('ASSIST_GUARDRAIL_VERSION', process.env.ASSIST_GUARDRAIL_VERSION ?? 'DRAFT');
+}
 
 // S3 event notifications via AwsCustomResource (one-way data→storage dep)
 const notificationConfig = {
@@ -396,14 +510,40 @@ const mediaCdn = createMediaCdn(mediaCdnStack, {
   originalsBucket: backend.storage.resources.bucket,
   allowedPrefixes: ['uploads/', 'logos/'],
   allowOpen: process.env.MEDIA_CDN_ALLOW_OPEN === '1',
-  publicKeyPem: process.env.MEDIA_CDN_PUBLIC_KEY,
+  // Hosting stores variables on one line; the normalizer restores the PEM's
+  // line breaks (or decodes a base64 PEM) and ignores placeholders, so a
+  // bad paste falls closed instead of failing the deploy.
+  publicKeyPem: normalizePublicKeyPem(process.env.MEDIA_CDN_PUBLIC_KEY),
 });
 
-// URL signer (getMediaAccess query) needs the distribution identity.
+// Originals are served by CloudFront straight from the storage bucket
+// (`*/original/*` behavior). The OAC grant lives here, on the real bucket,
+// scoped to any distribution in this account: naming the distribution
+// would make the storage stack depend on the media-cdn stack, which
+// already depends on the bucket — a cycle. S3 is upload/origin only; the
+// storage access rules grant clients no read on media prefixes.
+bucket.addToResourcePolicy(
+  new iam.PolicyStatement({
+    sid: 'AllowCloudFrontOacRead',
+    principals: [new iam.ServicePrincipal('cloudfront.amazonaws.com')],
+    actions: ['s3:GetObject'],
+    resources: ['uploads/*', 'logos/*'].map((p) => bucket.arnForObjects(p)),
+    conditions: {
+      ArnLike: {
+        'AWS:SourceArn': `arn:aws:cloudfront::${backend.stack.account}:distribution/*`,
+      },
+    },
+  })
+);
+
+// URL signer (getMediaAccess query) needs the distribution identity and
+// the access mode: in open mode (sandbox) it hands out unsigned CDN URLs
+// instead of refusing, so nothing falls back to S3.
 const getMediaUrlsLambda = backend.getMediaUrlsFunction.resources
   .lambda as lambda.Function;
 getMediaUrlsLambda.addEnvironment('MEDIA_CDN_DOMAIN', mediaCdn.domain);
 getMediaUrlsLambda.addEnvironment('MEDIA_CDN_KEY_PAIR_ID', mediaCdn.keyPairId);
+getMediaUrlsLambda.addEnvironment('MEDIA_CDN_MODE', mediaCdn.mode);
 
 // ═══════════════════════════════════════════════════════════════════
 // #5 Stripe Function URL

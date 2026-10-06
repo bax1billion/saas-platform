@@ -8,5 +8,18 @@
  */
 
 import type { ModuleDef } from "@/lib/modules/types";
+import { applyStageOverrides } from "@/lib/modules/stage-overrides";
 
-export const modules: ModuleDef[] = [];
+const registry: ModuleDef[] = [];
+
+/**
+ * The registry an environment actually runs. `NEXT_PUBLIC_MODULE_STAGES`
+ * (set per branch in the Amplify console, or in .env.local) can flip a
+ * preview to `beta` for that environment only, so staging can exercise
+ * checkout against a test-mode Stripe Price while production keeps the
+ * module in preview. See lib/modules/stage-overrides.ts.
+ */
+export const modules: ModuleDef[] = applyStageOverrides(
+  registry,
+  process.env.NEXT_PUBLIC_MODULE_STAGES
+);

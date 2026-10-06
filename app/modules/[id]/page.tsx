@@ -7,13 +7,13 @@ import EarlyAccessModal from "@/app/components/EarlyAccessModal";
 import AuthModal from "@/app/components/AuthModal";
 import EarlyAccessButton from "@/app/components/EarlyAccessButton";
 import ModuleIcon from "@/app/components/ModuleIcon";
-import { modules, getModule, availabilityLabel, isPreview } from "@/lib/modules";
+import { modules, getModuleBySlug, productSlug, availabilityLabel, isPreview } from "@/lib/modules";
 import { pageTitle, absoluteUrl } from "@/config/site";
 
 type Params = { id: string };
 
 export function generateStaticParams(): Params[] {
-  return modules.map((m) => ({ id: m.id }));
+  return modules.map((m) => ({ id: productSlug(m) }));
 }
 
 export async function generateMetadata({
@@ -22,16 +22,16 @@ export async function generateMetadata({
   params: Promise<Params>;
 }): Promise<Metadata> {
   const { id } = await params;
-  const m = getModule(id);
+  const m = getModuleBySlug(id);
   if (!m) return {};
   return {
     title: pageTitle(m.name),
     description: m.description,
-    alternates: { canonical: `/modules/${m.id}` },
+    alternates: { canonical: `/modules/${productSlug(m)}` },
     openGraph: {
       title: pageTitle(m.name),
       description: m.description,
-      url: absoluteUrl(`/modules/${m.id}`),
+      url: absoluteUrl(`/modules/${productSlug(m)}`),
       type: "website",
     },
   };
@@ -47,7 +47,7 @@ export default async function ModulePage({
   params: Promise<Params>;
 }) {
   const { id } = await params;
-  const m = getModule(id);
+  const m = getModuleBySlug(id);
   if (!m) notFound();
 
   // Preview modules ship routes but have no price yet — same soft CTA.

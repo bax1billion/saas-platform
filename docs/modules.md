@@ -64,7 +64,7 @@ export const investigationsModule: ModuleDef = {
     { label: "Cases", href: "/investigations/cases" },
     { label: "Report", href: "/investigations/report" },
   ],
-  group: "Programs",               // optional lineup arc → sidebar section
+  group: "Programs",               // optional lineup group → sidebar section
   availability: "addon",           // "included" | "addon" | "coming-soon"
   stage: "beta",                   // "ga" | "beta" | "planned"
   price: "$149",
@@ -126,17 +126,57 @@ and touches no data. `nav` may stay empty. This keeps a large lineup
 navigable from day one with zero fake data.
 
 **Grouping a large lineup.** `ModuleDef.group` (optional) labels a
-module's arc — e.g. "Operate" / "People" / "Programs". The app-shell
-sidebar renders one section per group in registry order; modules without
-a group fall under "Modules". Purely presentational: entitlements,
-routes and billing ignore it.
+module's group, e.g. "Operate" / "People" / "Programs" in lineup order.
+The app-shell sidebar renders one section per group in registry order;
+modules without a group fall under "Modules". A group may carry a colour
+token in `config/theme.css` (`--group-<id>`, light and dark; `arcAccent()`
+in `lib/modules/index.ts` resolves it) for headers and chips; a group
+colour is never a product accent and a product accent is never a group
+colour. Purely presentational: entitlements, routes and billing ignore it.
 
 Granting one is an operator action: `ModuleAccessCard` lists
 `marketedAddonModules` (previews tagged `Preview`), so an operator can comp
-an org into a preview from the UI even though nobody can buy it. Selling it
-is one edit — create the Stripe Product/Price, add the
-`STRIPE_PRICE_MODULE_<ID>` secret to `verticalModulePriceSecrets`, and move
-the module's `stage` to `beta`.
+an org into a preview from the UI even though nobody can buy it. Org Admins
+cannot: the override model is Operator-write only. Granting an org the
+operator is not a member of is the runbook in `docs/operator-grants.md`.
+
+**The gate has two halves.** The client half reads `stage` from the
+registry and keeps a preview off every buying surface. The server half is
+`amplify/data/sellable.ts`: the checkout Lambda receives the resolved
+sellable list at synth and refuses any other module id, so a call that goes
+around the UI (an Admin with the GraphQL endpoint) is refused too, even
+when a Stripe Price exists. In production every module is a preview: the
+code default is `stage: "planned"` everywhere and `sellableModules` is
+empty.
+
+**Putting a module on sale** is three edits:
+
+1. Create the Stripe Product (metadata `module=<id>`) and Price in that
+   environment's Stripe account, on the same billing interval as the tier
+   Prices; add `"<id>": "price_..."` to that environment's
+   `STRIPE_MODULE_PRICES` secret (one JSON object for every module on sale
+   there). The checkout function binds that secret only where at least one
+   module is sellable, so an environment that sells nothing needs no module
+   price secret.
+2. Add the id to `sellableModules` in `amplify/data/sellable.ts`.
+3. Move the module's registry `stage` to `beta` and add its display `price`.
+
+**Per-environment stage.** To test checkout on staging before a module is
+sellable for real, flip it there only with the build-time variable
+`NEXT_PUBLIC_MODULE_STAGES` (Amplify console → the branch's environment
+variables, or `.env.local`):
+
+```
+NEXT_PUBLIC_MODULE_STAGES="widgets=beta:$149,reports=beta:$99"
+```
+
+Entries are `<id>=<stage>[:<display price>]`. The override
+(`lib/modules/stage-overrides.ts`) rewrites the registry that environment
+runs, and the backend synth reads the same variable so that environment's
+checkout Lambda sells the same set. The code default stays `planned`, so
+production is unaffected. The module's Stripe Price must exist in that
+environment's Stripe account and `STRIPE_MODULE_PRICES` must map its id to
+the real price id — a missing entry deploys fine but fails at checkout.
 
 ### Locked state
 
@@ -149,8 +189,11 @@ not entitled — the module's marketing copy, its price, and a link to
 Add-on modules are Stripe Prices whose Product carries metadata
 `module=<id>`. `createCheckoutSession` accepts an optional `modules` list and
 adds one line item per module alongside the tier price; the price IDs come
-from secrets named `STRIPE_PRICE_MODULE_<ID>` (uppercased, dashes → underscores),
-declared per product in `amplify/data/vertical.ts` (`verticalModulePriceSecrets`).
+from the `STRIPE_MODULE_PRICES` secret, a JSON object of module id to Stripe
+Price id, bound only in environments that sell at least one module (the
+checkout function's `resource.ts`). One secret, not one per module: a
+Lambda's environment is capped at 4 KB and a per-module secret costs an
+entry each.
 
 The webhook handler mirrors line items into `OrgSubscription.modules` on
 every subscription event, so adding or removing a module in the Stripe
@@ -167,7 +210,6 @@ export const investigationsModels = { /* a.enum / a.model entries */ };
 export const investigationsEntityTypes = ["INVESTIGATION", "INVESTIGATION_MEDIA"];
 export const investigationsEventActions = ["CASE_SEALED"];
 export const investigationsOrgSeeds: Array<Record<string, unknown>> = [];
-export const investigationsPriceSecret = "STRIPE_PRICE_MODULE_INVESTIGATIONS";
 ```
 
 and `amplify/data/vertical.ts` spreads them into the vertical exports.
@@ -193,14 +235,20 @@ WidgetRequest: a.model({
   orgId: a.id().required().authorization(MEMBER_FIELD),
   note:  a.string(),                       // client-owned
   // server-owned: read for all, write for nobody
-  state:      a.string().default('PENDING').authorization(READ_ALL),
+  // no .default() here: defaults are applied in the resolver's init step,
+  // BEFORE field auth, so a defaulted read-only column fails every client
+  // create with "Unauthorized on [state]". Null = pending; the handler
+  // writes the first real value (docs/submit-then-verify.md §8).
+  state:      a.string().authorization(READ_ALL),
   decidedAt:  a.datetime().authorization(READ_ALL),
   decidedBy:  a.string().authorization(READ_ALL),
 }) …
 
 // amplify/data/vertical.ts
 export const verticalFunctions = { widgetDecision: widgetDecisionFunction };
-export const verticalStreamConsumers = { WidgetRequest: ['widgetDecision'] };
+// Per-table merge: a second module listening on WidgetRequest adds its
+// handler beside widgetDecision instead of replacing it.
+export const verticalStreamConsumers = mergeStreamConsumers(widgetsStreamConsumers /*, … */);
 ```
 
 Why this is the default:
@@ -223,6 +271,13 @@ For a client-initiated *transition* on a server-owned column — "I want to
 withdraw this" when `state` is write-to-nobody — give the client an intent
 column it does own (`requestedState`) and let the handler reconcile it into
 `state`. Desired-state versus actual, rather than a command.
+
+Applied to a row's **birth** — the client may create it, `status` is
+read-only and born null (a `.default()` would break the create — see the
+doc), and the first server write is the verdict — this is the
+*submit-then-verify* pattern:
+[`docs/submit-then-verify.md`](submit-then-verify.md), including where it
+fits better than the commands and pipeline steps in the codebase today.
 
 ### The field written is the authority
 
@@ -335,7 +390,7 @@ validation and API-key usage plans, and a Function URL buys none of them.
    redirecting `page.tsx`, and one thin `page.tsx` per nav item.
 6. Build the UI in `modules/<id>/components/` using `components/ui/*`.
 7. If it's an add-on: create the Stripe Product (metadata `module=<id>`) and
-   Price; set the `STRIPE_PRICE_MODULE_<ID>` secret; add it to
-   `verticalModulePriceSecrets`.
+   Price; add the id to the `STRIPE_MODULE_PRICES` secret in the environment
+   that sells it.
 8. Run `npm test`, `npx tsc --noEmit`, `npm run check:backend`, and
    `npx next build`; deploy the sandbox.

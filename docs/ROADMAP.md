@@ -108,7 +108,9 @@ during the build (add an `amplify.yml` only if you need to customize the
 build). Per app/branch, configure in the console:
 
 - **Environment variables:** `APP_URL` (the environment's public origin) —
-  read at synth time by `amplify/backend.ts`
+  read at synth time by `amplify/backend.ts`; optionally
+  `NEXT_PUBLIC_MODULE_STAGES` to flip preview modules to `beta` in that
+  environment only (docs/modules.md → Preview modules)
 - **Secrets:** `STRIPE_SECRET_KEY`, `STRIPE_PRICE_*`, `STRIPE_WEBHOOK_SECRET`
   — Stripe **test-mode** keys/prices in staging, **live** in production
 - **Frontend env:** `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (test vs live to

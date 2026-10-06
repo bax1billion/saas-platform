@@ -8,6 +8,8 @@ import { stripeWebhookHandlerFunction } from '../functions/stripe-webhook-handle
 import { createCheckoutSessionFunction } from '../functions/create-checkout-session/resource';
 import { createOrganizationFunction } from '../functions/create-organization/resource';
 import { getMediaUrlsFunction } from '../functions/get-media-urls/resource';
+import { exportRequestFunction } from '../functions/export-request/resource';
+import { assistRunFunction } from '../functions/assist-run/resource';
 import {
   verticalModels,
   verticalEntityTypes,
@@ -94,6 +96,9 @@ const schema = a
       'SUBSCRIPTION',
       'STRIPE_WEBHOOK_EVENT',
       'ORG_ENTITLEMENT_OVERRIDE',
+      'TESTER_FLAG',
+      'EXPORT_JOB',
+      'ASSIST_EVENT',
       ...verticalEntityTypes,
     ]),
 
@@ -167,6 +172,131 @@ const schema = a
       .authorization((allow) => [
         allow.group('Admin').to(['create', 'read', 'update', 'delete']),
         allow.groups(['Member', 'Viewer']).to(['read']),
+      ]),
+
+    /** Flag it: a tester's report from any screen, filled in with where
+     *  they were. Any signed-in person may file one; Admins and Operators
+     *  read the inbox. */
+    TesterFlag: a
+      .model({
+        orgId: a.id(),
+        product: a.string(),
+        screen: a.string().required(),
+        role: a.string(),
+        device: a.string(),
+        version: a.string(),
+        happened: a.string().required(),
+        expected: a.string(),
+        createdBy: a.string(),
+        status: a.string().default('OPEN'),
+        sortDate: a.datetime().required(),
+      })
+      .secondaryIndexes((index) => [
+        index('orgId').sortKeys(['sortDate']).queryField('testerFlagsByOrg'),
+        index('status').sortKeys(['sortDate']).queryField('testerFlagsByStatus'),
+      ])
+      .authorization((allow) => [
+        allow.authenticated().to(['create']),
+        allow.groups(['Admin', 'Operator']).to(['read', 'update']),
+      ]),
+
+    /** What a person did with an Assist suggestion. */
+    AssistEventState: a.enum(['PROPOSED', 'ACCEPTED', 'EDITED', 'REJECTED']),
+
+    /** One Assist run and its outcome (docs/spine-services-design.md § 2.3):
+     *  which helper, prompt and model, the hash of what it was allowed to
+     *  read, what it proposed, what the person kept, who decided. Written
+     *  only by the assist-run function; org groups read. This is the
+     *  Assist log tab on a record. */
+    AssistEvent: a
+      .model({
+        orgId: a.id().required(),
+        helperId: a.string().required(),
+        /** Module id that owns the helper. */
+        product: a.string().required(),
+        promptVersion: a.string().required(),
+        /** Inference profile id, or "rules" when no model was called. */
+        modelId: a.string().required(),
+        recordType: a.string().required(),
+        recordId: a.id().required(),
+        targetId: a.id(),
+        /** SHA-256 of the allow-listed input; the cache key with prompt and model. */
+        inputHash: a.string().required(),
+        /** The helper's output, as JSON. */
+        output: a.json().required(),
+        /** What the person kept when they edited, as JSON. */
+        finalOutput: a.json(),
+        tokensIn: a.integer(),
+        tokensOut: a.integer(),
+        cached: a.boolean(),
+        state: a.ref('AssistEventState').required(),
+        requestedBy: a.string(),
+        decidedBy: a.string(),
+        decidedAt: a.datetime(),
+        sortDate: a.datetime().required(),
+      })
+      .secondaryIndexes((index) => [
+        index('orgId').sortKeys(['sortDate']).queryField('assistEventsByOrg'),
+        index('recordId').sortKeys(['sortDate']).queryField('assistEventsByRecord'),
+      ])
+      .disableOperations(['subscriptions'])
+      .authorization((allow) => [allow.groups(['Admin', 'Member', 'Viewer']).to(['read'])]),
+
+    /** Assist runs and tokens per org per month; id is `<orgId>#<yyyy-mm>`.
+     *  The cost meter: over the cap, helpers fall back to rules only. */
+    AssistUsage: a
+      .model({
+        orgId: a.id().required(),
+        month: a.string().required(),
+        runs: a.integer().required(),
+        tokensIn: a.integer().required(),
+        tokensOut: a.integer().required(),
+      })
+      .secondaryIndexes((index) => [index('orgId').sortKeys(['month']).queryField('assistUsageByOrg')])
+      .disableOperations(['subscriptions'])
+      .authorization((allow) => [allow.groups(['Admin']).to(['read'])]),
+
+    /** Document export formats the export service renders. */
+    ExportFormat: a.enum(['PDF', 'DOCX']),
+    ExportStatus: a.enum(['QUEUED', 'RENDERING', 'READY', 'FAILED']),
+
+    /** One export of one record (docs/spine-services-design.md § 3): the
+     *  document model the product built, then what the renderer made of it.
+     *  Written only by the export functions (the request command over
+     *  AppSync, the renderer through the table); org groups read. The row
+     *  is also the export log: who asked, the data date, the hash. */
+    ExportJob: a
+      .model({
+        orgId: a.id().required(),
+        /** Provider key the product registers (amplify/data/export-providers.ts). */
+        recordType: a.string().required(),
+        recordId: a.id().required(),
+        /** `<template id>@<version>` the document was built with. */
+        template: a.string(),
+        format: a.ref('ExportFormat').required(),
+        status: a.ref('ExportStatus').required(),
+        fileName: a.string().required(),
+        /** The document model (lib/export/model.ts), as JSON. */
+        document: a.json().required(),
+        /** When the data was read; printed on the document, stamped in the file. */
+        dataDate: a.datetime().required(),
+        requestedBy: a.string(),
+        s3Key: a.string(),
+        sha256: a.string(),
+        sizeBytes: a.integer(),
+        pageCount: a.integer(),
+        rendererVersion: a.string(),
+        error: a.string(),
+        isDeleted: a.boolean().default(false),
+        sortDate: a.datetime().required(),
+      })
+      .secondaryIndexes((index) => [
+        index('orgId').sortKeys(['sortDate']).queryField('exportJobsByOrg'),
+        index('recordId').sortKeys(['sortDate']).queryField('exportJobsByRecord'),
+      ])
+      .disableOperations(['subscriptions'])
+      .authorization((allow) => [
+        allow.groups(['Admin', 'Member', 'Viewer']).to(['read']),
       ]),
 
     /** Append-only audit trail, written by the event-logger Lambda from
@@ -390,6 +520,85 @@ const schema = a
       .authorization((allow) => [allow.authenticated()])
       .handler(a.handler.function(getMediaUrlsFunction)),
 
+    AssistRunResult: a.customType({
+      eventId: a.id().required(),
+      helperId: a.string().required(),
+      promptVersion: a.string().required(),
+      /** The helper's output, as JSON. */
+      output: a.string().required(),
+      cached: a.boolean(),
+      tokensIn: a.integer(),
+      tokensOut: a.integer(),
+    }),
+
+    /** Run one Assist helper on one record for the caller. Refused when the
+     *  helper is unknown or off, the caller's role may not run it, or the
+     *  helper's own access check fails. Returns a suggestion; the screen
+     *  shows it light and nothing is written to the record. */
+    assistRun: a
+      .mutation()
+      .arguments({
+        helperId: a.string().required(),
+        recordType: a.string().required(),
+        recordId: a.id().required(),
+        targetId: a.id(),
+      })
+      .returns(a.ref('AssistRunResult'))
+      .authorization((allow) => [allow.groups(['Admin', 'Member'])])
+      .handler(a.handler.function(assistRunFunction)),
+
+    AssistDecideResult: a.customType({
+      eventId: a.id().required(),
+      state: a.string().required(),
+    }),
+
+    /** The person's decision on a suggestion; the record is written by the
+     *  product's own path. */
+    assistDecide: a
+      .mutation()
+      .arguments({
+        eventId: a.id().required(),
+        state: a.ref('AssistEventState').required(),
+        /** What they kept when they edited, as JSON. */
+        finalOutput: a.string(),
+      })
+      .returns(a.ref('AssistDecideResult'))
+      .authorization((allow) => [allow.groups(['Admin', 'Member'])])
+      .handler(a.handler.function(assistRunFunction)),
+
+    ExportDownload: a.customType({
+      /** Presigned, 15 minutes, GET only. */
+      url: a.string().required(),
+      fileName: a.string().required(),
+      expiresAt: a.datetime().required(),
+    }),
+
+    /** Ask the record's export provider for its document and queue the
+     *  render. Refused before anything is written when the caller may not
+     *  export the record, has not affirmed the review, or a suggested
+     *  value is unconfirmed. Returns the queued job; poll it until READY. */
+    requestExport: a
+      .mutation()
+      .arguments({
+        recordType: a.string().required(),
+        recordId: a.id().required(),
+        format: a.ref('ExportFormat').required(),
+        template: a.string(),
+        /** The person's affirmation that they reviewed the document. */
+        affirmed: a.boolean().required(),
+      })
+      .returns(a.ref('ExportJob'))
+      .authorization((allow) => [allow.groups(['Admin', 'Member'])])
+      .handler(a.handler.function(exportRequestFunction)),
+
+    /** A short-lived download link for a READY job in the caller's org. */
+    getExportDownload: a
+      .query()
+      .arguments({ jobId: a.id().required() })
+      .returns(a.ref('ExportDownload'))
+      .authorization((allow) => [allow.groups(['Admin', 'Member', 'Viewer'])])
+      .handler(a.handler.function(exportRequestFunction)),
+
     ProvisionOrganizationResponse: a.customType({
       orgId: a.id().required(),
       slug: a.string().required(),
@@ -428,6 +637,8 @@ const schema = a
       .resource(createOrganizationFunction)
       .to(['query', 'mutate']),
     allow.resource(getMediaUrlsFunction).to(['query']),
+    allow.resource(exportRequestFunction).to(['query', 'mutate']),
+    allow.resource(assistRunFunction).to(['query', 'mutate']),
     // Module command handlers (amplify/data/vertical.ts → verticalFunctions)
     ...Object.values(verticalFunctions).map((fn) =>
       allow.resource(fn).to(['query', 'mutate'])

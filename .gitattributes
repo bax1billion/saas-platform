@@ -1,0 +1,4 @@
+# Normalize everything to LF in the repository regardless of core.autocrlf
+# on a contributor's machine — this stopped a Windows checkout from
+# silently flipping docs/*.md to CRLF and wiping their blame history.
+* text=auto eol=lf

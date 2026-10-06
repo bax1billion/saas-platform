@@ -46,13 +46,26 @@ function LogoMark() {
 }
 
 /** Background star field */
+/** Deterministic pseudo-random (mulberry32) so the star field is pure per
+ *  render (react-hooks/purity) and identical on every mount. */
+function seededRandom(seed: number) {
+  let t = seed >>> 0;
+  return () => {
+    t = (t + 0x6d2b79f5) >>> 0;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 function StarField({ count = 300 }) {
   const geometry = useMemo(() => {
+    const random = seededRandom(count);
     const positions = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
-      positions[i * 3] = (Math.random() - 0.5) * 25;
-      positions[i * 3 + 1] = (Math.random() - 0.5) * 25;
-      positions[i * 3 + 2] = -5 - Math.random() * 10;
+      positions[i * 3] = (random() - 0.5) * 25;
+      positions[i * 3 + 1] = (random() - 0.5) * 25;
+      positions[i * 3 + 2] = -5 - random() * 10;
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
