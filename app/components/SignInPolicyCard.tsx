@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { toast } from "sonner";
 import { Loader2, ShieldCheck } from "lucide-react";
 import outputs from "@/amplify_outputs.json";
 import { getDataClient } from "@/lib/data-client";
@@ -33,6 +32,8 @@ export default function SignInPolicyCard() {
   const [draft, setDraft] = useState<AuthPolicy | null>(null);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
+  /** Inline confirmation after a save; the saved values are the state. */
+  const [saved, setSaved] = useState<string | null>(null);
 
   if (!user || !org || !isOrgAdmin(user.groups)) return null;
 
@@ -44,6 +45,7 @@ export default function SignInPolicyCard() {
 
   const update = (next: AuthPolicy) => {
     setErrors([]);
+    setSaved(null);
     setDraft(next);
   };
 
@@ -65,7 +67,7 @@ export default function SignInPolicyCard() {
       }
       await refresh();
       setDraft(null);
-      toast.success("Sign-in settings saved. They apply at each person's next sign-in, or within the hour.");
+      setSaved("Saved. It applies at each person's next sign-in, or within the hour.");
     } catch (err) {
       setErrors([err instanceof Error ? err.message : "Could not save the sign-in settings."]);
     } finally {
@@ -158,6 +160,11 @@ export default function SignInPolicyCard() {
           ))}
         </ul>
       )}
+      {saved && (
+        <p role="status" className="mt-4 text-sm text-muted-foreground">
+          {saved}
+        </p>
+      )}
 
       <div className="mt-5 flex flex-wrap gap-2">
         <button
@@ -174,6 +181,7 @@ export default function SignInPolicyCard() {
             onClick={() => {
               setDraft(null);
               setErrors([]);
+              setSaved(null);
             }}
             disabled={saving}
             className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted"

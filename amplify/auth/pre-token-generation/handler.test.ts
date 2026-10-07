@@ -1,13 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { PreTokenGenerationTriggerEvent } from 'aws-lambda';
+import type { PreTokenGenerationV2TriggerEvent } from 'aws-lambda';
 import { applySignInPolicy, type PolicyLookups } from './handler';
 
+/** A version 2 event, the shape `PreTokenGenerationConfig` V2_0 sends. */
 function event(
   userName: string,
   attrs: Record<string, string> = {}
-): PreTokenGenerationTriggerEvent {
+): PreTokenGenerationV2TriggerEvent {
   return {
-    version: '1',
+    version: '2',
     region: 'us-east-1',
     userPoolId: 'pool-1',
     userName,
@@ -16,9 +17,25 @@ function event(
     request: {
       userAttributes: { sub: 'sub-1', ...attrs },
       groupConfiguration: { groupsToOverride: ['Admin'], iamRolesToOverride: [] },
+      scopes: ['aws.cognito.signin.user.admin'],
     },
-    response: { claimsOverrideDetails: {} },
-  } as unknown as PreTokenGenerationTriggerEvent;
+    response: { claimsAndScopeOverrideDetails: {} },
+  } as unknown as PreTokenGenerationV2TriggerEvent;
+}
+
+const UNTOUCHED = { claimsAndScopeOverrideDetails: {} };
+
+/** The override both the enroll and the fail-closed paths must produce:
+ *  no groups on either token, and the marker claim on both. */
+function groupless(claim: string) {
+  const claimsToAddOrOverride = { [claim]: 'true' };
+  return {
+    claimsAndScopeOverrideDetails: {
+      idTokenGeneration: { claimsToAddOrOverride },
+      accessTokenGeneration: { claimsToAddOrOverride },
+      groupOverrideDetails: { groupsToOverride: [] },
+    },
+  };
 }
 
 function lookups(policy: Awaited<ReturnType<PolicyLookups['orgPolicyForSub']>>, totp = false) {
@@ -34,13 +51,13 @@ describe('applySignInPolicy', () => {
   it('leaves tokens alone for a user with no organization', async () => {
     const l = lookups(null);
     const e = await applySignInPolicy(event('Google_1', { identities: GOOGLE_ID }), 'google', l);
-    expect(e.response).toEqual({ claimsOverrideDetails: {} });
+    expect(e.response).toEqual(UNTOUCHED);
   });
 
   it('allows a method the organization allows', async () => {
     const l = lookups({ signInMethods: ['password', 'google'], mfaPolicy: 'OPTIONAL' });
     const e = await applySignInPolicy(event('Google_1', { identities: GOOGLE_ID }), 'google', l);
-    expect(e.response).toEqual({ claimsOverrideDetails: {} });
+    expect(e.response).toEqual(UNTOUCHED);
     expect(l.totpEnrolled).not.toHaveBeenCalled();
   });
 
@@ -58,26 +75,30 @@ describe('applySignInPolicy', () => {
     );
   });
 
-  it('strips groups and flags setup when two-step is required and missing', async () => {
+  it('strips groups from both tokens and flags setup when two-step is required and missing', async () => {
     const l = lookups({ signInMethods: ['password'], mfaPolicy: 'REQUIRED' }, false);
     const e = await applySignInPolicy(event('uuid-user'), '', l);
     expect(l.totpEnrolled).toHaveBeenCalledWith('pool-1', 'uuid-user');
-    expect(e.response.claimsOverrideDetails).toEqual({
-      claimsToAddOrOverride: { mfa_setup_required: 'true' },
-      groupOverrideDetails: { groupsToOverride: [] },
-    });
+    expect(e.response).toEqual(groupless('mfa_setup_required'));
   });
 
   it('issues normal tokens once two-step is set up', async () => {
     const l = lookups({ signInMethods: ['password'], mfaPolicy: 'REQUIRED' }, true);
     const e = await applySignInPolicy(event('uuid-user'), '', l);
-    expect(e.response).toEqual({ claimsOverrideDetails: {} });
+    expect(e.response).toEqual(UNTOUCHED);
+  });
+
+  it('does not ask a federated sign-in for two-step even when required', async () => {
+    const l = lookups({ signInMethods: ['password', 'google'], mfaPolicy: 'REQUIRED' }, false);
+    const e = await applySignInPolicy(event('Google_1', { identities: GOOGLE_ID }), 'google', l);
+    expect(e.response).toEqual(UNTOUCHED);
+    expect(l.totpEnrolled).not.toHaveBeenCalled();
   });
 
   it('falls back to password when the stored provider is no longer set up', async () => {
     const l = lookups({ signInMethods: ['microsoft'], mfaPolicy: 'OPTIONAL' });
     const e = await applySignInPolicy(event('uuid-user'), '', l);
-    expect(e.response).toEqual({ claimsOverrideDetails: {} });
+    expect(e.response).toEqual(UNTOUCHED);
   });
 
   it('skips the lookup when the event has no sub', async () => {
@@ -97,10 +118,7 @@ describe('applySignInPolicy', () => {
     };
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     const e = await applySignInPolicy(event('uuid-user'), '', l);
-    expect(e.response.claimsOverrideDetails).toEqual({
-      claimsToAddOrOverride: { auth_check_unavailable: 'true' },
-      groupOverrideDetails: { groupsToOverride: [] },
-    });
+    expect(e.response).toEqual(groupless('auth_check_unavailable'));
     expect(l.totpEnrolled).not.toHaveBeenCalled();
     expect(err).toHaveBeenCalledWith(
       expect.stringContaining('Sign-in policy lookup failed'),
@@ -118,10 +136,7 @@ describe('applySignInPolicy', () => {
     };
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     const e = await applySignInPolicy(event('uuid-user'), '', l);
-    expect(e.response.claimsOverrideDetails).toEqual({
-      claimsToAddOrOverride: { auth_check_unavailable: 'true' },
-      groupOverrideDetails: { groupsToOverride: [] },
-    });
+    expect(e.response).toEqual(groupless('auth_check_unavailable'));
     expect(err).toHaveBeenCalledWith(
       expect.stringContaining('Two-step status lookup failed'),
       expect.anything()
@@ -137,11 +152,11 @@ describe('applySignInPolicy', () => {
     const l = { orgPolicyForSub, totpEnrolled: vi.fn(async () => false) };
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     const first = await applySignInPolicy(event('uuid-user'), '', l);
-    expect(first.response.claimsOverrideDetails.groupOverrideDetails).toEqual({ groupsToOverride: [] });
+    expect(first.response).toEqual(groupless('auth_check_unavailable'));
     const refreshed = event('uuid-user');
     refreshed.triggerSource = 'TokenGeneration_RefreshTokens';
     const second = await applySignInPolicy(refreshed, '', l);
-    expect(second.response).toEqual({ claimsOverrideDetails: {} });
+    expect(second.response).toEqual(UNTOUCHED);
     expect(orgPolicyForSub).toHaveBeenCalledTimes(2);
     err.mockRestore();
   });

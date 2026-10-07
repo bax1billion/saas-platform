@@ -166,6 +166,13 @@ For local checks without a sandbox: `test -f amplify_outputs.json || echo '{}' >
 - A command Lambda called by another Lambda over IAM has no Cognito `sub`: `resolveCaller`-style
   helpers refuse it. Give such a path an explicit, narrowly scoped system caller rather than
   widening the user path.
+- Amplify's data client authorizes AppSync with the **access token**, so anything that must
+  change what AppSync sees (groups, a marker claim) has to land on that token. A Cognito pre
+  token generation trigger attached by `defineAuth` is version 1 and edits the ID token only;
+  `amplify/backend.ts` re-attaches it as `PreTokenGenerationConfig` `V2_0` (needs the Essentials
+  or Plus pool tier). A trigger Lambda's role policy must not name the pool ARN: the pool's
+  `LambdaConfig` already points at the function, and the function depends on its own default
+  policy, so the cycle scan fails (`docs/sign-in-and-mfa.md`).
 - A signed-in user in a Cognito group assumes that **group's IAM role**, not the authenticated
   role. Any grant made only to `allow.authenticated` (storage) or `authenticatedUserIamRole`
   (custom constructs) reaches nobody in a group, which is every onboarded user. Grant the org

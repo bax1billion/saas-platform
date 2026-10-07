@@ -2,7 +2,6 @@
 
 import { useState, type FormEvent } from "react";
 import { setUpTOTP, verifyTOTPSetup, updateMFAPreference } from "aws-amplify/auth";
-import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { siteConfig } from "@/config/site";
 import { formatTotpKey } from "@/lib/auth-policy/ui";
@@ -32,6 +31,8 @@ export default function TwoStepSetup({
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  /** "Copied" next to the key after the clipboard write, inline. */
+  const [copied, setCopied] = useState<"yes" | "no" | null>(null);
 
   async function start() {
     setBusy(true);
@@ -56,9 +57,10 @@ export default function TwoStepSetup({
       await updateMFAPreference({ totp: "PREFERRED" });
       if (afterEnable) await afterEnable();
       else await refreshUser({ forceRefresh: true });
-      toast.success("Two-step sign-in is on");
+      // The parent re-renders into its "on" state; that is the confirmation.
       setStep({ kind: "start" });
       setCode("");
+      setCopied(null);
       onDone?.();
     } catch (err) {
       const name = err instanceof Error ? err.name : "";
@@ -77,9 +79,9 @@ export default function TwoStepSetup({
   async function copyKey(secret: string) {
     try {
       await navigator.clipboard.writeText(secret);
-      toast.success("Key copied");
+      setCopied("yes");
     } catch {
-      toast.error("Copy did not work. Select the key and copy it.");
+      setCopied("no");
     }
   }
 
@@ -117,6 +119,16 @@ export default function TwoStepSetup({
             >
               Copy key
             </button>
+            {copied === "yes" && (
+              <span role="status" className="text-xs text-muted-foreground">
+                Copied
+              </span>
+            )}
+            {copied === "no" && (
+              <span role="status" className="text-xs text-muted-foreground">
+                Copy did not work. Select the key and copy it.
+              </span>
+            )}
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
             On this phone? <a className="underline" href={step.uri}>Open it in your authenticator app</a>.
@@ -155,6 +167,7 @@ export default function TwoStepSetup({
             setStep({ kind: "start" });
             setCode("");
             setError("");
+            setCopied(null);
           }}
           className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted"
         >

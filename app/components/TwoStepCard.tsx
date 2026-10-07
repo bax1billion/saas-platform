@@ -2,7 +2,6 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { fetchMFAPreference, updateMFAPreference } from "aws-amplify/auth";
-import { toast } from "sonner";
 import { KeyRound, Loader2 } from "lucide-react";
 import outputs from "@/amplify_outputs.json";
 import { PASSWORD, configuredMethodsFromOutputs, methodLabel, normalizeAuthPolicy } from "@/lib/auth-policy";
@@ -21,6 +20,7 @@ export default function TwoStepCard() {
   const { org } = useEntitlements();
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   const isPassword = user?.signInMethod === PASSWORD;
 
@@ -57,13 +57,14 @@ export default function TwoStepCard() {
 
   async function turnOff() {
     setBusy(true);
+    setError("");
     try {
       await updateMFAPreference({ totp: "DISABLED" });
       await refreshUser({ forceRefresh: true });
+      // The card re-renders into its "off" state; that is the confirmation.
       setEnabled(false);
-      toast.success("Two-step sign-in is off");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not turn it off");
+      setError(err instanceof Error ? err.message : "Could not turn it off. Try again.");
     } finally {
       setBusy(false);
     }
@@ -86,6 +87,11 @@ export default function TwoStepCard() {
               {busy && <Loader2 className="h-4 w-4 animate-spin" />}
               Turn off
             </button>
+          )}
+          {error && (
+            <p role="alert" className="w-full text-sm text-destructive">
+              {error}
+            </p>
           )}
         </div>
       ) : (

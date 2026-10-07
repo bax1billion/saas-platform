@@ -555,6 +555,7 @@ const schema = a
       .returns(a.ref('OrgAuthPolicyResponse'))
       .authorization((allow) => [allow.group('Admin')])
       .handler(a.handler.function(orgAuthPolicyFunction)),
+
     AssistRunResult: a.customType({
       eventId: a.id().required(),
       helperId: a.string().required(),

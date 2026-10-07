@@ -13,7 +13,7 @@ what an environment needs before federated sign-in works.
 | Organization policy (allowed methods, two-step Off / Optional / Required) | `Organization.signInMethods`, `Organization.mfaPolicy` (read-only to clients) |
 | Policy rules, shared by browser, command and trigger | `amplify/shared/auth-policy.ts` (client import: `@/lib/auth-policy`) |
 | Saving the policy | `setOrgAuthPolicy` command, `amplify/functions/org-auth-policy/` |
-| Applying the policy at sign-in and token refresh | Cognito pre token generation trigger, `amplify/auth/pre-token-generation/` |
+| Applying the policy at sign-in and token refresh | Cognito pre token generation trigger, **version 2**, `amplify/auth/pre-token-generation/` (wired as `PreTokenGenerationConfig` `V2_0` in `amplify/backend.ts` #7b) |
 | Admin screen | Settings, "Sign-in and security" (`app/components/SignInPolicyCard.tsx`) |
 | Personal two-step setup | Settings, "Two-step sign-in" (`app/components/TwoStepCard.tsx`); required setup page in `app/(app)/layout.tsx` |
 
@@ -56,6 +56,21 @@ until an Admin saves a change; a null policy means the recommended one.
    a message the sign-in screen shows. The two-step rule above is applied.
    A change reaches a signed-in person at their next token refresh (within
    the hour by default).
+
+   **Why the trigger is version 2.** `defineAuth` attaches a pre token
+   generation trigger as the legacy version 1, which can change the ID
+   token only. Amplify's data client authorizes AppSync with the **access**
+   token (`@aws-amplify/api-graphql`, `graphqlAuth`), so a version 1 group
+   override would leave every data rule exactly as it was and "Required"
+   would be a screen, not a rule. `amplify/backend.ts` therefore sets
+   `LambdaConfig.PreTokenGenerationConfig` to the same function with
+   `LambdaVersion: V2_0`, which applies `groupOverrideDetails` to both
+   tokens and lets the marker claims ride on the access token as well
+   (visible to a Lambda or pipeline step as `ctx.identity.claims`). Access
+   token customization needs the Essentials or Plus feature plan; the pool
+   is pinned to `ESSENTIALS`, which is also CloudFormation's default for a
+   pool created without a tier. Version 2 events carry the same request
+   fields the handler reads (`userAttributes`, `userName`, `triggerSource`).
 3. **Fail-safe reading.** The trigger never applies a policy that would
    lock everyone out: methods the environment no longer offers are ignored,
    and if none is left, password sign-in stays on. A user with no
@@ -146,4 +161,16 @@ provider:
   not have yet.
 - **Not exercised against a sandbox yet.** Synth passes with federation on
   and off; the trigger's group override, the redirect flow and the TOTP
-  flow have unit tests for their logic only.
+  flow have unit tests for their logic only. Before "Required" is offered
+  to a real organization, prove on a sandbox, in this order:
+  1. Set an organization to Required with a password user who has no
+     authenticator app, sign in, and decode the **access** token: it must
+     carry `mfa_setup_required` and no `cognito:groups` (an empty
+     `groupsToOverride` is what the handler sends; if Cognito keeps the
+     original groups instead, the override shape needs changing before
+     anything else ships).
+  2. With that token, call `usersByCognitoSub` through AppSync directly
+     (not the app): it must be refused.
+  3. Finish setup, refresh, and confirm groups are back on both tokens.
+  4. Turn a method off for an organization and sign in with it: the
+     trigger's error must reach the sign-in screen as the policy message.

@@ -1,4 +1,7 @@
-import type { PreTokenGenerationTriggerEvent, PreTokenGenerationTriggerHandler } from 'aws-lambda';
+import type {
+  PreTokenGenerationV2TriggerEvent,
+  PreTokenGenerationV2TriggerHandler,
+} from 'aws-lambda';
 import { DynamoDBClient, ListTablesCommand } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import {
@@ -29,6 +32,14 @@ export type PolicyLookups = {
  * issues tokens without groups, so AppSync's group rules deny every read
  * and write until the user sets up two-step sign-in and refreshes.
  *
+ * This is a VERSION 2 trigger (`LambdaConfig.PreTokenGenerationConfig`
+ * with `LambdaVersion: V2_0`, wired in amplify/backend.ts #7b). The
+ * version matters: a V1 trigger changes the ID token only, and Amplify's
+ * data client sends the ACCESS token to AppSync, so a V1 group override
+ * would leave every data rule exactly as it was. V2 applies
+ * `groupOverrideDetails` to both tokens and lets the claims below ride on
+ * the access token too, where `ctx.identity.claims` can see them.
+ *
  * If a lookup itself fails (a table or Cognito call errors), the trigger
  * fails closed: it logs the error and issues tokens with no groups plus an
  * `auth_check_unavailable` claim, so data rules deny everything and the app
@@ -40,10 +51,10 @@ export type PolicyLookups = {
  * pool locked out after the outage ends.
  */
 export async function applySignInPolicy(
-  event: PreTokenGenerationTriggerEvent,
+  event: PreTokenGenerationV2TriggerEvent,
   configuredValue: string | undefined,
   lookups: PolicyLookups
-): Promise<PreTokenGenerationTriggerEvent> {
+): Promise<PreTokenGenerationV2TriggerEvent> {
   const attrs = event.request.userAttributes ?? {};
   const sub = attrs.sub;
   if (!sub) return event;
@@ -80,34 +91,44 @@ export async function applySignInPolicy(
     throw new Error(decision.message);
   }
   if (decision.kind === 'enroll') {
-    event.response = {
-      claimsOverrideDetails: {
-        claimsToAddOrOverride: { [MFA_SETUP_CLAIM]: 'true' },
-        groupOverrideDetails: { groupsToOverride: [] },
-      },
-    };
+    return withoutGroups(event, MFA_SETUP_CLAIM);
   }
+  return event;
+}
+
+/**
+ * Tokens with no groups and one marker claim on both tokens. Every AppSync
+ * group rule denies a token with no groups; the app reads the claim from
+ * the ID token to pick the screen; a Lambda or pipeline step can read it
+ * from the access token.
+ */
+function withoutGroups(
+  event: PreTokenGenerationV2TriggerEvent,
+  claim: string
+): PreTokenGenerationV2TriggerEvent {
+  const claimsToAddOrOverride = { [claim]: 'true' };
+  event.response = {
+    claimsAndScopeOverrideDetails: {
+      idTokenGeneration: { claimsToAddOrOverride },
+      accessTokenGeneration: { claimsToAddOrOverride },
+      groupOverrideDetails: { groupsToOverride: [] },
+    },
+  };
   return event;
 }
 
 /** Fail closed: no groups, and a claim the app turns into a retry screen. */
 function refuseUnverified(
-  event: PreTokenGenerationTriggerEvent,
+  event: PreTokenGenerationV2TriggerEvent,
   what: string,
   err: unknown
-): PreTokenGenerationTriggerEvent {
+): PreTokenGenerationV2TriggerEvent {
   console.error(`${what}; issuing tokens without groups`, {
     triggerSource: event.triggerSource,
     userName: event.userName,
     error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
   });
-  event.response = {
-    claimsOverrideDetails: {
-      claimsToAddOrOverride: { [AUTH_CHECK_UNAVAILABLE_CLAIM]: 'true' },
-      groupOverrideDetails: { groupsToOverride: [] },
-    },
-  };
-  return event;
+  return withoutGroups(event, AUTH_CHECK_UNAVAILABLE_CLAIM);
 }
 
 // ── AWS lookups ────────────────────────────────────────────────────────
@@ -175,5 +196,5 @@ const awsLookups: PolicyLookups = {
   },
 };
 
-export const handler: PreTokenGenerationTriggerHandler = async (event) =>
+export const handler: PreTokenGenerationV2TriggerHandler = async (event) =>
   applySignInPolicy(event, process.env.AUTH_FEDERATED_PROVIDERS, awsLookups);

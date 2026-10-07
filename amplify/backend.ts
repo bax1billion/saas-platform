@@ -635,13 +635,29 @@ postConfirmationLambda.addToRolePolicy(
 );
 
 // ═══════════════════════════════════════════════════════════════════
-// #7b Pre token generation trigger IAM (organization sign-in policy)
+// #7b Pre token generation trigger (organization sign-in policy)
 // Same constraints as #7: wildcard ARNs, table names discovered at
 // runtime. Reads the caller's User row and Organization policy, and asks
 // Cognito whether the user has an authenticator app set up.
 // ═══════════════════════════════════════════════════════════════════
 
 const preTokenLambda = backend.preTokenGeneration.resources.lambda;
+const { cfnUserPool } = backend.auth.resources.cfnResources;
+
+// defineAuth attaches the trigger as the legacy `PreTokenGeneration`
+// (version 1), which can change the ID token only. Amplify's data client
+// authorizes AppSync with the ACCESS token, so a version 1 group override
+// would leave every data rule untouched. `PreTokenGenerationConfig` with
+// `V2_0` applies the override and the marker claims to both tokens; the
+// legacy field may stay set as long as it names the same function.
+// Access token customization needs the Essentials or Plus feature plan,
+// which is CloudFormation's default for a pool created without a tier;
+// it is pinned here so a pool can never silently be on Lite.
+cfnUserPool.addPropertyOverride('LambdaConfig.PreTokenGenerationConfig', {
+  LambdaArn: preTokenLambda.functionArn,
+  LambdaVersion: 'V2_0',
+});
+cfnUserPool.userPoolTier = 'ESSENTIALS';
 
 preTokenLambda.addToRolePolicy(
   new iam.PolicyStatement({
@@ -661,6 +677,10 @@ preTokenLambda.addToRolePolicy(
   })
 );
 
+// Wildcard on purpose, like #7: the pool's LambdaConfig references this
+// function, and CDK makes the function depend on its role's default
+// policy, so a policy that names the pool ARN closes a cycle
+// (pool → function → policy → pool) that the cycle scan rejects.
 preTokenLambda.addToRolePolicy(
   new iam.PolicyStatement({
     actions: ['cognito-idp:AdminGetUser'],
