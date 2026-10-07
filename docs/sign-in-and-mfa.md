@@ -139,6 +139,92 @@ provider:
 4. Add the redirect URI at each provider.
 5. Sign in with each provider once to confirm.
 
+## Amplify conventions, and where this departs from them
+
+Recorded 2026-10-07 at review so the next person knows which parts are
+plain Amplify and which are ours, and why.
+
+### What is the documented Amplify shape
+
+| Piece | Convention followed |
+|---|---|
+| Providers | `defineAuth` → `loginWith.externalProviders`: `google` with `clientId` / `clientSecret` from `secret()`, Microsoft as an `oidc` entry (`name`, `issuerUrl`, `scopes`, `attributeMapping`), plus `callbackUrls` and `logoutUrls`. Secrets are Amplify secrets, never environment variables |
+| MFA | `multifactor: { mode: 'OPTIONAL', totp: true }` on the pool |
+| Trigger | A `defineFunction` with `resourceGroupName: 'auth'`, attached through `triggers: { preTokenGeneration }` |
+| Client, federation | `signInWithRedirect({ provider: 'Google' })`; `{ custom: '<provider name>' }` for an OIDC or SAML entry; the `aws-amplify/auth/enable-oauth-listener` import the docs require for Next.js so the redirect back completes on any page |
+| Client, two-step | `signIn` → `CONFIRM_SIGN_IN_WITH_TOTP_CODE` → `confirmSignIn`; enrollment through `setUpTOTP`, `getSetupUri`, `verifyTOTPSetup`, `updateMFAPreference({ totp: 'PREFERRED' })`; status through `fetchMFAPreference` |
+| Pool changes | MFA off → Optional, the two trigger entries and the explicit tier are in-place updates of the existing pool; no replacement, no user migration |
+
+### Where we depart, and why
+
+1. **Per-organization two-step policy instead of a pool-wide rule.**
+   Amplify's native way to require MFA is `mode: 'REQUIRED'` on the pool,
+   which gives every sign-in Cognito's own setup step
+   (`CONTINUE_SIGN_IN_WITH_TOTP_SETUP`). One pool serves every agency, and
+   a volunteer department and a city EMS agency will not want the same
+   rule, so the pool stays Optional and the organization's choice is
+   enforced in the pre token generation trigger: a person under Required
+   without an app gets tokens with **no groups** plus a marker claim until
+   they enroll. Cost: the trigger is a custom layer on a native hook, it
+   runs on every token issue, and its failure mode is ours to own
+   (section "Where it is enforced", point 4). Revisit if Cognito ever
+   offers a per-group or per-tenant MFA rule, or if a second pool per
+   agency tier becomes acceptable.
+2. **Trigger version 2 through the CDK escape hatch.** `defineAuth`
+   attaches the trigger as version 1 and offers no option for version 2,
+   but version 1 edits the ID token only and Amplify's data client
+   authorizes AppSync with the access token. `amplify/backend.ts` sets
+   `LambdaConfig.PreTokenGenerationConfig` with `V2_0` on
+   `cfnResources.cfnUserPool` and pins the tier to Essentials, which
+   access token customization needs. The override is Amplify's documented
+   way to change what `defineAuth` does not expose. Revisit when
+   `defineAuth` grows a version option.
+3. **The trigger reads DynamoDB directly and finds tables with
+   `ListTables`.** Amplify's documented pattern for a trigger that needs
+   data is the data client inside the function with an `allow.resource`
+   grant on the schema. The repo's post-confirmation trigger already uses
+   `ListTables` because giving an auth-stack function the AppSync endpoint
+   produced a circular dependency on deploy
+   (`amplify/auth/post-confirmation/handler.ts` records the attempts), and
+   this trigger follows that precedent. Cost: in a dev account with
+   several sandboxes live, `ListTables` can pick another sandbox's table.
+   Revisit for both triggers together: the documented data-client route,
+   or the `ListStackResources` fix the post-confirmation comment describes.
+4. **The trigger's Cognito grant is a wildcard pool ARN.** Naming the pool
+   ARN in the function's role policy closes a cycle (the pool's
+   `LambdaConfig` points at the function, and CDK makes the function depend
+   on its own default policy); `npm run check:backend` rejects it. Same
+   shape as the post-confirmation grant.
+5. **A custom sign-in modal, not the Amplify UI Authenticator.** The repo
+   already had its own `AuthModal`; this change adds the provider buttons
+   and the code step to it rather than switching components. The
+   Authenticator would handle every Cognito step (new password required,
+   TOTP setup when the pool requires it) for free; the modal handles the
+   steps this configuration can produce and shows an honest "not
+   supported yet" message for any other.
+6. **The policy lives on `Organization`, written by a command.** Cognito
+   has no per-organization setting, so the policy is four read-only
+   columns on the org row and a command mutation that validates and
+   writes them over IAM. This is the repo's own command convention
+   (`docs/modules.md`), chosen because a bad or cross-org change must be
+   refused before anything is written.
+7. **Two-step is not applied to federated sign-ins.** Cognito does not
+   challenge a hosted-UI sign-in with its own MFA, so under Required a
+   Google or Microsoft sign-in relies on that provider's policy. Documented
+   on the Admin card. Nothing in Amplify changes this; it is a Cognito
+   limit.
+8. **No account linking.** A federated sign-in creates its own Cognito
+   user. Amplify's pre sign-up trigger could link it to a password user by
+   email, but only a verified email from the provider makes that safe, and
+   Entra does not send one by default. Deferred on purpose.
+
+### Not built, so nothing to depart from yet
+
+SMS and email codes (no message provider chosen), passkeys, Okta or SAML
+entries (one more `externalProviders` entry each), a per-role or
+per-product MFA rule, session idle and absolute timers (ticket 1775,
+V45-712 carries those).
+
 ## Known limits
 
 - **Separate accounts.** A Google or Microsoft sign-in creates its own
