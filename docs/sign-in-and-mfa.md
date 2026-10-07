@@ -160,16 +160,16 @@ plain Amplify and which are ours, and why.
 1. **Per-organization two-step policy instead of a pool-wide rule.**
    Amplify's native way to require MFA is `mode: 'REQUIRED'` on the pool,
    which gives every sign-in Cognito's own setup step
-   (`CONTINUE_SIGN_IN_WITH_TOTP_SETUP`). One pool serves every agency, and
-   a volunteer department and a city EMS agency will not want the same
-   rule, so the pool stays Optional and the organization's choice is
+   (`CONTINUE_SIGN_IN_WITH_TOTP_SETUP`). One pool serves every tenant, and
+   a small volunteer organization and a regulated one will not want the
+   same rule, so the pool stays Optional and the organization's choice is
    enforced in the pre token generation trigger: a person under Required
    without an app gets tokens with **no groups** plus a marker claim until
    they enroll. Cost: the trigger is a custom layer on a native hook, it
    runs on every token issue, and its failure mode is ours to own
    (section "Where it is enforced", point 4). Revisit if Cognito ever
    offers a per-group or per-tenant MFA rule, or if a second pool per
-   agency tier becomes acceptable.
+   tenant tier becomes acceptable.
 2. **Trigger version 2 through the CDK escape hatch.** `defineAuth`
    attaches the trigger as version 1 and offers no option for version 2,
    but version 1 edits the ID token only and Amplify's data client
@@ -222,8 +222,8 @@ plain Amplify and which are ours, and why.
 
 SMS and email codes (no message provider chosen), passkeys, Okta or SAML
 entries (one more `externalProviders` entry each), a per-role or
-per-product MFA rule, session idle and absolute timers (ticket 1775,
-V45-712 carries those).
+per-product MFA rule, session idle and absolute timers (a product's own
+compliance work carries those).
 
 ## Known limits
 
