@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import ModuleAccessCard from "@/app/components/ModuleAccessCard";
+import SignInPolicyCard from "@/app/components/SignInPolicyCard";
+import TwoStepCard from "@/app/components/TwoStepCard";
 
 type UserRecord = Schema["User"]["type"];
 
@@ -59,6 +61,8 @@ export default function OrganizationSettingsPage() {
         </dl>
       </section>
 
+      <SignInPolicyCard />
+      <TwoStepCard />
       <ModuleAccessCard />
 
       <section className="mt-8">
