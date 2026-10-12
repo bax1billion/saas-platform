@@ -49,7 +49,7 @@ same rules or the deploy will fail with the error above.
 
 | # | Wiring | Mechanism |
 |---|---|---|
-| 1 | DynamoDB streams + EventSourceMappings | `streamEventSources` map (single source of truth: table → consuming Lambdas); `AwsCustomResource` stream-ARN lookup |
+| 1 | DynamoDB streams + EventSourceMappings | `streamEventSources` map (single source of truth: table → consuming Lambdas); `AwsCustomResource` stream-ARN lookup. The lookups live in the `streams` nested stack under the data stack with one shared role (two resources per streamed table pushed a product's data stack past CloudFormation's 500-resource cap, and a policy per lookup past IAM's 10 KB inline-policy cap, in Oct 2026); the mappings stay in the data stack. Never move a mapping between stacks: CloudFormation creates before it deletes and Lambda allows one mapping per stream and function. Table ids are the nested stack's parameters, the ARNs its outputs (caps 200 each) |
 | 2 | Stream-read IAM | wildcard ARN on every Lambda in the map |
 | 3 | AppSync IAM + `GRAPHQL_ENDPOINT` | wildcard ARN + env var for all trigger functions |
 | 4 | S3 upload notifications (`uploads/` prefix) | `AwsCustomResource` + explicit `CfnPermission` → s3-file-trigger |

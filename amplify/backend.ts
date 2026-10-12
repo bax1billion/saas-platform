@@ -19,15 +19,24 @@ import { postConfirmation } from './auth/post-confirmation/resource';
 import { preTokenGeneration } from './auth/pre-token-generation/resource';
 import { orgAuthPolicyFunction } from './functions/org-auth-policy/resource';
 import {
+  composed,
+  verticalApiSteps,
+  verticalDomainFunctions,
+  verticalModuleIds,
   verticalStreamTables,
   verticalStreamConsumers,
   verticalModuleTables,
+  verticalSharedModuleTables,
   verticalModuleMutations,
   verticalFunctions,
   verticalRecordAccess,
   applyVerticalBackend,
 } from './data/vertical';
+import { describeComposition } from './shared/bootstrap';
 import { createMediaCdn } from './custom/media-cdn/resource';
+import { grantDomainUrlLookup, wireDataDomains } from './data/domains/index';
+import { createSandboxSeed } from './custom/sandbox-seed/resource';
+import { domainDefinitions } from './data/domains/registry';
 import { applyEntitlementEnforcement } from './data/entitlements/index';
 import { applyRecordAccess } from './data/record-access/index';
 import * as iam from 'aws-cdk-lib/aws-iam';
@@ -36,7 +45,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import { StreamViewType } from 'aws-cdk-lib/aws-dynamodb';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
-import { CfnOutput, CfnResource, Stack } from 'aws-cdk-lib';
+import { Aspects, CfnOutput, CfnResource, NestedStack, Stack, type IAspect } from 'aws-cdk-lib';
 import * as cr from 'aws-cdk-lib/custom-resources';
 import { existsSync, readFileSync } from 'node:fs';
 
@@ -60,7 +69,23 @@ const backend = defineBackend({
   assistRunFunction,
   // Module-owned command handlers (amplify/data/vertical.ts)
   ...verticalFunctions,
+  // Functions of modules on a data domain: instantiated here (in their
+  // domain's stack), granted on their domain's API below, never on the
+  // foundation schema.
+  ...(verticalDomainFunctions as typeof verticalFunctions),
 });
+
+// Which modules this deploy composes (docs/bootstrap.md): a fresh
+// environment is built in stages under CloudFormation's cap of 2,500
+// resources per stack operation; an existing one leaves BACKEND_MODULES
+// unset. Module-specific wiring is guarded with `composed`.
+console.log(describeComposition(composed, verticalModuleIds));
+// The organization trigger seeds per-module rows; it must not seed a table
+// this deploy does not have.
+(backend.organizationTriggerFunction.resources.lambda as lambda.Function).addEnvironment(
+  'BACKEND_MODULES',
+  process.env.BACKEND_MODULES ?? ''
+);
 
 // ═══════════════════════════════════════════════════════════════════
 // #1 DynamoDB Streams → Lambda triggers
@@ -141,6 +166,40 @@ for (const tableName of Object.keys(streamEventSources)) {
   };
 }
 
+// The stream-ARN lookups live in their own nested stack under the data
+// stack. Each streamed table costs a lookup custom resource and its policy
+// (two resources) plus one mapping per consumer; with ninety tables that
+// is most of CloudFormation's 500-resource cap, and the data stack (which
+// also holds every schema-granted function with its role and policies)
+// crossed it in October 2026 at 538. The lookups move; the mappings stay
+// in the data stack. A mapping must not move: CloudFormation creates the
+// new stack's resources before it deletes the old ones, and Lambda allows
+// one mapping per stream and function, so a moved mapping fails with
+// "provided mapping already exists" (a 2026-10-09 staging rollback). A
+// mapping that stays keeps its logical id and its resolved stream ARN, so
+// the deploy sees no change on it. Table ids become the nested stack's
+// parameters and the ARNs its outputs (CDK wires both; the caps are 200
+// each): parent → child → parent through outputs is legal, and the
+// per-model stacks never reference a mapping, so no cycle.
+const streamStack = new NestedStack(dataStack, 'streams');
+
+// One role for every lookup. An AwsCustomResource with its own `policy`
+// adds an inline policy to the stack's shared provider role, one per
+// lookup, and IAM caps a role's inline policies at 10,240 bytes: a deploy
+// failed on exactly that ("Maximum policy size of 10240 bytes exceeded")
+// at about 110 lookups. With `role` given, the provider function uses this
+// role and no per-lookup policy is made; one statement covers every table.
+const streamLookupRole = new iam.Role(streamStack, 'StreamLookupRole', {
+  assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+  description: 'Reads each table\'s stream ARN at deploy (DescribeTable) for the event source mappings.',
+  managedPolicies: [iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole')],
+  inlinePolicies: {
+    describe: new iam.PolicyDocument({
+      statements: [new iam.PolicyStatement({ actions: ['dynamodb:DescribeTable'], resources: ['*'] })],
+    }),
+  },
+});
+
 // EventSourceMappings use an AwsCustomResource to look up stream ARNs at
 // deploy time, since Custom::AmplifyDynamoDBTable doesn't expose StreamArn.
 for (const [tableName, functions] of Object.entries(streamEventSources)) {
@@ -159,17 +218,12 @@ for (const [tableName, functions] of Object.entries(streamEventSources)) {
   };
 
   const streamLookup = new cr.AwsCustomResource(
-    dataStack,
+    streamStack,
     `${tableName}StreamLookup`,
     {
       onCreate: describeCall,
       onUpdate: describeCall,
-      policy: cr.AwsCustomResourcePolicy.fromStatements([
-        new iam.PolicyStatement({
-          actions: ['dynamodb:DescribeTable'],
-          resources: ['*'],
-        }),
-      ]),
+      role: streamLookupRole,
     }
   );
 
@@ -305,12 +359,101 @@ createOrgLambda.addToRolePolicy(
 
 const entitlements = applyEntitlementEnforcement(backend.data.resources, {
   moduleTables: verticalModuleTables,
+  sharedModuleTables: verticalSharedModuleTables,
   moduleMutations: verticalModuleMutations,
   subscriptionTables: ['Site'],
 });
 console.log(
   `Entitlement enforcement on ${entitlements.gatedFields.length} mutations`
 );
+
+// ═══════════════════════════════════════════════════════════════════
+// #3b2 Data domains (docs/data-domains.md)
+// One AppSync API per product group, each in its own stack with its own
+// CloudFormation caps. The foundation API above keeps organizations,
+// users, entitlements and the shared services; a domain API holds its
+// group's tables and reads the foundation's subscription rows for the
+// same entitlement decision. The registry (amplify/data/domains/registry.ts)
+// says which domains this deploy builds; everything per domain happens in
+// wireDataDomains, so a new domain is a registry line.
+// ═══════════════════════════════════════════════════════════════════
+
+const functionByKey = (key: string) =>
+  (backend as unknown as Record<string, typeof backend.eventLoggerFunction>)[key].resources.lambda as lambda.Function;
+
+const dataDomains = wireDataDomains({
+  domains: domainDefinitions,
+  rootStackName: backend.stack.stackName,
+  functionByKey,
+  createStack: backend.createStack,
+  addOutput: backend.addOutput,
+  auth: {
+    userPool: backend.auth.resources.userPool,
+    identityPoolId: backend.auth.resources.identityPoolId,
+    authenticatedUserRole: backend.auth.resources.authenticatedUserIamRole,
+    unauthenticatedUserRole: backend.auth.resources.unauthenticatedUserIamRole,
+  },
+  foundation: {
+    graphqlUrl: graphqlEndpoint,
+    tables: backend.data.resources.tables,
+    eventLogger: backend.eventLoggerFunction.resources.lambda,
+  },
+});
+console.log(`Data domains built: ${Object.keys(dataDomains).join(', ') || 'none'}`);
+
+// Every foundation function may read a module's rows on its domain (the
+// export providers, Assist's helpers, a module's public query): the
+// domain's URL comes from SSM at run time.
+for (const fn of allTriggerFunctions) {
+  grantDomainUrlLookup(fn.resources.lambda as lambda.Function, backend.stack.stackName);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// #3b3 Sandbox seed (docs/bootstrap.md "Seeding a sandbox")
+// Two organizations with a Member and an Admin each, written at deploy so
+// a smoke script can sign in without admin rights on the account.
+// Sandboxes only: refused where Amplify Hosting sets AWS_BRANCH.
+// ═══════════════════════════════════════════════════════════════════
+
+if (process.env.SANDBOX_SEED === '1') {
+  if (process.env.AWS_BRANCH) {
+    throw new Error(`SANDBOX_SEED is for sandboxes only and is refused on branch "${process.env.AWS_BRANCH}".`);
+  }
+  const password = process.env.SANDBOX_SEED_PASSWORD;
+  if (!password) throw new Error('SANDBOX_SEED=1 needs SANDBOX_SEED_PASSWORD (the seeded users\' password).');
+  createSandboxSeed(backend.createStack('sandbox-seed'), {
+    userPool: backend.auth.resources.userPool,
+    tables: {
+      User: backend.data.resources.tables['User'],
+      Organization: backend.data.resources.tables['Organization'],
+      OrgSubscription: backend.data.resources.tables['OrgSubscription'],
+    },
+    organizations: [
+      {
+        // Every module this deploy composes, so the smoke script can write a row on each API.
+        id: 'seed-org-all',
+        name: 'Seed Organization (every module)',
+        slug: 'seed-all',
+        modules: [...composed],
+        users: [
+          { email: 'seed-all@example.com', group: 'Member' },
+          { email: 'seed-all-admin@example.com', group: 'Admin' },
+        ],
+      },
+      {
+        id: 'seed-org-none',
+        name: 'Seed Organization (no modules)',
+        slug: 'seed-none',
+        modules: [],
+        users: [
+          { email: 'seed-none@example.com', group: 'Member' },
+          { email: 'seed-none-admin@example.com', group: 'Admin' },
+        ],
+      },
+    ],
+    password,
+  });
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // #3c Record-level access enforcement (docs/record-access.md)
@@ -324,15 +467,23 @@ const recordAccess = applyRecordAccess(backend.data.resources, verticalRecordAcc
 console.log(`Record access enforcement on ${recordAccess.gatedFields.length} fields`);
 
 // ═══════════════════════════════════════════════════════════════════
-// #3d Product-owned backend wiring (amplify/data/vertical.ts)
-// Anything a product must do in CDK beyond what the seams above declare
-// — its own APPSYNC_JS pipeline steps, a Step Functions workflow next to a
-// module Lambda, extra environment on a module function — lives in
-// `applyVerticalBackend`, so this file stays product-free. The foundation
-// default is a no-op. Runs after every foundation pipeline step so a
-// product step sees the resolved caller/org the same way #3c does.
+// #3d Module pipeline steps and product-owned backend wiring
+// The composed modules' own APPSYNC_JS steps on the foundation API (key
+// stamps, policy guards: amplify/data/vertical.ts `apiSteps`); a module on
+// a domain gets the same steps on its domain's API in wireDataDomains.
+// Runs after every foundation pipeline step so a module step sees the
+// resolved caller/org the same way #3c does.
 // ═══════════════════════════════════════════════════════════════════
 
+for (const step of verticalApiSteps) {
+  const result = step(backend.data.resources);
+  if (result) console.log(`${step.name} on ${result.gatedFields.length} mutations`);
+}
+
+// Anything else a product must do in CDK beyond what the seams declare
+// — a Step Functions workflow next to a module Lambda, extra environment
+// on a module function — lives in `applyVerticalBackend`, so this file
+// stays product-free. The foundation default is a no-op.
 applyVerticalBackend({
   data: backend.data.resources,
   dataStack,
@@ -345,6 +496,7 @@ applyVerticalBackend({
         .lambda as lambda.Function,
     ])
   ),
+  composed,
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -759,3 +911,31 @@ if (
   });
   console.log(`Sandbox operator bootstrap: ${usernames.length} user(s)`);
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// #9 Compact templates
+// CloudFormation refuses a template body over 1,000,000 bytes ("Template
+// may not exceed 1000000 bytes in size"), and a product's data nested
+// stack crossed it in October 2026 at 1,048,275 bytes pretty-printed:
+// every model is a nested stack resource with its parameters, every
+// function a role and policies, every streamed table a mapping. The same
+// template without indentation is about 810,000 bytes. CDK's own remedy is
+// the `@aws-cdk/core:suppressTemplateIndentation` context flag, but
+// Amplify's deployer hands the app its context from an in-memory store
+// (`MemoryContext` in @aws-amplify/backend-deployer), so neither cdk.json
+// nor CDK_CONTEXT_JSON reaches it. An aspect sets the flag on every stack
+// instead; it is read at synth, so the aspect covers stacks made later
+// too. The field is private to aws-cdk-lib, which is why
+// scripts/check-cfn-cycles.mjs checks the synthesized templates are
+// compact and under the limit: a CDK upgrade that renames it fails the
+// local check, not the deploy.
+// ═══════════════════════════════════════════════════════════════════
+
+const compactTemplates: IAspect = {
+  visit(node) {
+    if (Stack.isStack(node)) {
+      (node as unknown as { _suppressTemplateIndentation: boolean })._suppressTemplateIndentation = true;
+    }
+  },
+};
+Aspects.of(backend.stack.node.root).add(compactTemplates);

@@ -11,6 +11,7 @@ import { getMediaUrlsFunction } from '../functions/get-media-urls/resource';
 import { orgAuthPolicyFunction } from '../functions/org-auth-policy/resource';
 import { exportRequestFunction } from '../functions/export-request/resource';
 import { assistRunFunction } from '../functions/assist-run/resource';
+import { sharedTypes } from './shared-types';
 import {
   verticalModels,
   verticalEntityTypes,
@@ -34,14 +35,9 @@ const schema = a
     // Enums
     // ═══════════════════════════════════════════════════════════════════
 
-    /** Lifecycle for uploaded files (used by vertical file-bearing models
-     *  and the s3-file-trigger validation pipeline). */
-    FileValidationStatus: a.enum([
-      'PENDING',
-      'VALID',
-      'INVALID',
-      'QUARANTINED',
-    ]),
+    // Enums module schemas reference and no module owns; every data
+    // domain's API composes them too (amplify/data/shared-types.ts).
+    ...sharedTypes,
 
     SubscriberStatus: a.enum([
       'PENDING',

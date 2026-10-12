@@ -15,20 +15,33 @@ import * as appsync from 'aws-cdk-lib/aws-appsync';
  * Gated fields:
  *   - `create|update|delete<Model>` for each table in `moduleTables`
  *     → requires an active subscription AND that module
+ *   - `create|update|delete<Model>` for each table in `sharedModuleTables`
+ *     → requires an active subscription AND any one of its modules
  *   - each custom mutation named in `moduleMutations`
  *     → requires an active subscription AND that module (a Lambda-backed
  *       command writes over IAM, so the gate must sit on the command)
  *   - the same three for each table in `subscriptionTables`
  *     → requires an active subscription only
+ *   - each custom mutation named in `subscriptionMutations`
+ *     → requires an active subscription only (a foundation command that
+ *       writes over IAM)
  */
 
 export interface EntitlementEnforcementOptions {
   /** module id → model names owned by that module. */
   moduleTables: Record<string, string[]>;
+  /**
+   * model name → the module ids any one of which may write it. For a table
+   * one module owns whose writes another module's screens also make. Wins
+   * over `moduleTables` for the same model.
+   */
+  sharedModuleTables?: Record<string, string[]>;
   /** module id → custom mutation field names owned by that module. */
   moduleMutations?: Record<string, string[]>;
   /** Foundation org-scoped models that only need an active subscription. */
   subscriptionTables: string[];
+  /** Foundation custom mutations that only need an active subscription. */
+  subscriptionMutations?: string[];
 }
 
 type DataResources = {
@@ -51,12 +64,16 @@ export function applyEntitlementEnforcement(
   const stack = Stack.of(data.graphqlApi);
   const apiId = data.graphqlApi.apiId;
 
-  // fieldName → required module id (null = subscription only)
-  const fieldModule: Record<string, string | null> = {};
+  // fieldName → required module id, or ids any one of which will do (null = subscription only)
+  const fieldModule: Record<string, string | string[] | null> = {};
   for (const [moduleId, models] of Object.entries(options.moduleTables)) {
     for (const model of models) {
       for (const p of MUTATION_PREFIXES) fieldModule[`${p}${model}`] = moduleId;
     }
+  }
+  for (const [model, moduleIds] of Object.entries(options.sharedModuleTables ?? {})) {
+    if (!moduleIds.length) throw new Error(`Entitlements: shared table ${model} names no module`);
+    for (const p of MUTATION_PREFIXES) fieldModule[`${p}${model}`] = [...moduleIds];
   }
   for (const [moduleId, fields] of Object.entries(options.moduleMutations ?? {})) {
     for (const field of fields) fieldModule[field] = moduleId;
@@ -64,6 +81,7 @@ export function applyEntitlementEnforcement(
   for (const model of options.subscriptionTables) {
     for (const p of MUTATION_PREFIXES) fieldModule[`${p}${model}`] = null;
   }
+  for (const field of options.subscriptionMutations ?? []) fieldModule[field] = null;
 
   const dataSourceByName = (name: string) => {
     const ds = Object.values(data.cfnResources.cfnDataSources).find(

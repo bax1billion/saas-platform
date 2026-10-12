@@ -31,7 +31,7 @@ const runtime = { earlyReturn: (v: unknown) => ({ [EARLY]: true, value: v }) };
 type Ctx = Record<string, unknown>;
 type Step = { request: (ctx: Ctx) => unknown; response: (ctx: Ctx) => unknown };
 
-const FIELD_MODULE = { createWidget: "widgets", createSite: null };
+const FIELD_MODULE = { createWidget: "widgets", createSite: null, createMapMark: ["maps", "widgets"] };
 
 function load(file: string, replacements: Record<string, string> = {}): Step {
   let src = readFileSync(new URL(file, import.meta.url), "utf8");
@@ -110,6 +110,11 @@ describe("backend entitlement decision table", () => {
     ["EXPIRED operator override grants nothing", { identity: cognito, user: member, override: { access: "comped", modules: ["widgets"], expiresAt: past }, sub: null, field: "createWidget" }, "SubscriptionRequired"],
     ["expired override does not shadow a live subscription", { identity: cognito, user: member, override: { access: "comped", expiresAt: past }, sub: { status: "ACTIVE", modules: ["widgets"] }, field: "createWidget" }, "ALLOW"],
     ["ungated field with active sub", { identity: cognito, user: member, sub: { status: "ACTIVE" }, field: "updateOrganization" }, "ALLOW"],
+    ["shared table: the first module is enough", { identity: cognito, user: member, sub: { status: "ACTIVE", modules: ["maps"] }, field: "createMapMark" }, "ALLOW"],
+    ["shared table: the second module is enough", { identity: cognito, user: member, sub: { status: "ACTIVE", modules: ["widgets"] }, field: "createMapMark" }, "ALLOW"],
+    ["shared table: comped with one of them", { identity: cognito, user: member, override: { access: "comped", modules: ["widgets"] }, sub: null, field: "createMapMark" }, "ALLOW"],
+    ["shared table: neither module → denied", { identity: cognito, user: member, sub: { status: "ACTIVE", modules: ["other"] }, field: "createMapMark" }, "ModuleRequired"],
+    ["shared table still needs an active subscription", { identity: cognito, user: member, sub: { status: "CANCELED", modules: ["maps"] }, field: "createMapMark" }, "SubscriptionRequired"],
   ];
 
 

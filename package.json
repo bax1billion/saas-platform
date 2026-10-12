@@ -10,6 +10,8 @@
     "check:backend": "node --import tsx scripts/check-backend.mjs && node scripts/check-cfn-cycles.mjs",
     "check:entitlements": "vitest run amplify/data/entitlements",
     "check:resolvers": "node scripts/check-resolvers.mjs",
+    "generate:domains": "node --import tsx scripts/generate-domains.mjs",
+    "sandbox": "node scripts/sandbox.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
