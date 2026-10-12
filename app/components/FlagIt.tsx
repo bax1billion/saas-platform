@@ -20,11 +20,14 @@ export default function FlagIt({
   product,
   version,
   className,
+  iconOnly = false,
 }: {
   /** Override the product label (the demo lane passes the prototype name). */
   product?: string;
   version?: string;
   className?: string;
+  /** The compact rail and the phone top bar show the flag alone, named for assistive tech. */
+  iconOnly?: boolean;
 }) {
   const pathname = usePathname();
   const { user } = useAuth();
@@ -72,12 +75,15 @@ export default function FlagIt({
       <button
         type="button"
         onClick={() => setOpen(true)}
+        aria-label={iconOnly ? "Flag it" : undefined}
+        title={iconOnly ? "Flag it" : undefined}
         className={cn(
           "inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted",
           className
         )}
       >
-        <Flag className="h-3.5 w-3.5" /> Flag it
+        <Flag className={iconOnly ? "h-4 w-4" : "h-3.5 w-3.5"} />
+        {!iconOnly && " Flag it"}
       </button>
       {open && (
         <div className="fixed inset-0 z-[100] flex items-end justify-center bg-brand-dark/60 p-4 sm:items-center" onClick={() => setOpen(false)}>

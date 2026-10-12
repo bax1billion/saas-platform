@@ -74,6 +74,14 @@
   --sidebar-accent-foreground: #ffffff;
   --sidebar-border: #ffffff1a;
   --sidebar-ring: var(--emerald);
+
+  /* The app frame's sizes (docs/shell.md). Plain px on purpose: the scroll
+     spy reads them with getPropertyValue, which returns raw text. */
+  --sidebar-compact-w: 72px;
+  --topbar-h: 56px;
+  --toolbar-h: 64px;
+  --bs-top-h: 56px; /* the sticky top bar; equals --topbar-h */
+  --bs-rail-h: 0px; /* the sticky chip strip writes its height here at runtime */
 }
 
 /*

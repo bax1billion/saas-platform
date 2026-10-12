@@ -6,11 +6,28 @@ import { usePathname } from "next/navigation";
 import { Lock } from "lucide-react";
 import { getModule, availabilityLabel, isPreview, productPath, type ModuleDef, type ModuleNavItem } from "@/lib/modules";
 import { activeNavHref } from "@/lib/modules/active-nav";
+import { isAdminPath } from "@/lib/shell/door";
+import { routeItems } from "@/lib/shell/rail-model";
 import { cn } from "@/lib/utils";
 import { useAuth } from "./AuthContext";
 import { useEntitlements } from "./EntitlementsContext";
 import { canManageOrg } from "@/lib/roles";
 import ModuleIcon from "./ModuleIcon";
+import SectionRail from "./shell/SectionRail";
+import { SectionRailProvider, useSections } from "./shell/SectionRailContext";
+
+/**
+ * The Admin door's menu is a section rail by rule (docs/shell.md, Section
+ * rail: the Admin pages are a level-2 menu), so on an Admin path the
+ * product's admin pages are registered as the rail's default and the
+ * header tab strip hides. A page that registers its own sections takes
+ * the rail over while it is mounted. Everywhere else the tabs stay in the
+ * header and the rail belongs to the record or workflow on screen.
+ */
+function AdminRoutes({ name, nav, activeHref }: { name: string; nav: ModuleNavItem[]; activeHref: string | null }) {
+  useSections({ mode: "routes", label: name, items: routeItems(nav), activeId: activeHref ?? undefined }, { fallback: true });
+  return null;
+}
 
 const stageLabel: Record<ModuleDef["stage"], string | null> = {
   ga: null,
@@ -97,10 +114,16 @@ function ModuleLocked({ module }: { module: ModuleDef }) {
  * `navOverride` and `headerExtra` are optional, additive escape hatches —
  * every existing caller that omits them renders byte-identical to before.
  * A module whose tabs and their labels change with something other than
- * the URL (a Field/Station/Admin door switch) passes its own computed
- * `nav` array as `navOverride` and a control (the door toggle) as
- * `headerExtra`, instead of `ModuleShell` growing a module-specific
- * concept of "mode".
+ * the URL (the Field/Station/Admin door from `useDoor()`) passes its own
+ * computed `nav` array as `navOverride`; `headerExtra` takes a control
+ * that belongs to the product (never a door switch: the frame owns that).
+ *
+ * The body carries the section rail slots (docs/shell.md, "What a product
+ * rail is"): a record or workflow page registers its sections with
+ * `useSections` and the frame draws them as a strip under the product
+ * header or a rail beside the canvas; on an Admin path the admin menu is
+ * the rail (`AdminRoutes`). Each slot renders nothing unless it is the
+ * active variant for the live layout. Route tabs stay in the header.
  */
 export default function ModuleShell({
   moduleId,
@@ -138,11 +161,14 @@ export default function ModuleShell({
   const stage = stageLabel[mod.stage];
   const nav = navOverride ?? mod.nav;
   const activeHref = activeNavHref(nav, pathname);
+  const adminRail = isAdminPath(pathname, [mod.basePath]);
 
   return (
     <div className="flex min-h-full flex-col">
       <header className="border-b border-border bg-background">
-        <div className="mx-auto flex max-w-7xl items-center gap-3 px-6 pt-5">
+        {/* Wraps on a phone: a header control (the sync pill) drops to its
+            own line rather than pushing the page sideways. */}
+        <div className={cn("mx-auto flex max-w-7xl flex-wrap items-center gap-x-3 gap-y-2 px-4 pt-5 sm:px-6", adminRail && "pb-4")}>
           <ModuleIcon module={mod} size="md" />
           <h1 className="font-serif text-xl font-bold text-foreground">
             {mod.name}
@@ -152,9 +178,10 @@ export default function ModuleShell({
               {stage}
             </span>
           )}
-          {headerExtra && <div className="ml-auto">{headerExtra}</div>}
+          {headerExtra && <div className="ml-auto max-w-full">{headerExtra}</div>}
         </div>
-        <nav className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-6 pt-3">
+        {!adminRail && (
+        <nav className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4 pt-3 sm:px-6">
           {nav.map((item) => {
             const active = item.href === activeHref;
             const Icon = item.icon;
@@ -176,8 +203,16 @@ export default function ModuleShell({
             );
           })}
         </nav>
+        )}
       </header>
-      <div className="flex-1">{children}</div>
+      <SectionRailProvider>
+        {adminRail && <AdminRoutes name={mod.name} nav={nav} activeHref={activeHref} />}
+        <SectionRail variant="strip" />
+        <div className="flex flex-1">
+          <SectionRail variant="rail" />
+          <div className="min-w-0 flex-1">{children}</div>
+        </div>
+      </SectionRailProvider>
     </div>
   );
 }
