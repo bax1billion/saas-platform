@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getDataClient } from "@/lib/data-client";
+import type { ExportFormatId } from "./model";
 
 /**
  * Request an export, follow the job until the renderer is done, then fetch
@@ -9,6 +10,10 @@ import { getDataClient } from "@/lib/data-client";
  * product: the product only names the record type, the record and the
  * format. The job row is polled because the model has no subscriptions;
  * renders take seconds, so two-second polls for up to five minutes.
+ *
+ * `follow(jobId)` picks up a job something else queued (a product command
+ * that exports as part of its own transition) or one queued earlier, and
+ * resolves straight to the link when it is already READY.
  */
 
 export type ExportState =
@@ -34,8 +39,38 @@ export function useExportJob() {
     setState({ phase: "idle" });
   }, []);
 
+  const follow = useCallback((jobId: string) => {
+    const client = getDataClient();
+    if (timer.current) clearTimeout(timer.current);
+    const since = Date.now();
+    setState({ phase: "rendering", jobId, since });
+
+    const poll = async () => {
+      const { data: current } = await client.models.ExportJob.get({ id: jobId });
+      if (current?.status === "READY") {
+        const { data: dl, errors: dlErrors } = await client.queries.getExportDownload({ jobId });
+        if (dlErrors?.length || !dl) {
+          setState({ phase: "failed", jobId, message: dlErrors?.[0]?.message ?? "The file is ready but the link could not be made." });
+        } else {
+          setState({ phase: "ready", jobId, url: dl.url, fileName: dl.fileName });
+        }
+        return;
+      }
+      if (current?.status === "FAILED") {
+        setState({ phase: "failed", jobId, message: current.error ?? "The render failed." });
+        return;
+      }
+      if (Date.now() - since > GIVE_UP_MS) {
+        setState({ phase: "failed", jobId, message: "The render is taking longer than five minutes. Try again later." });
+        return;
+      }
+      timer.current = setTimeout(poll, POLL_MS);
+    };
+    void poll();
+  }, []);
+
   const start = useCallback(
-    async (args: { recordType: string; recordId: string; format: "PDF" | "DOCX"; template?: string; affirmed: boolean }) => {
+    async (args: { recordType: string; recordId: string; format: ExportFormatId; template?: string; affirmed: boolean }) => {
       const client = getDataClient();
       setState({ phase: "requesting" });
       const { data: job, errors } = await client.mutations.requestExport(args);
@@ -43,34 +78,10 @@ export function useExportJob() {
         setState({ phase: "failed", message: errors?.[0]?.message ?? "The export could not be requested." });
         return;
       }
-      const since = Date.now();
-      setState({ phase: "rendering", jobId: job.id, since });
-
-      const poll = async () => {
-        const { data: current } = await client.models.ExportJob.get({ id: job.id });
-        if (current?.status === "READY") {
-          const { data: dl, errors: dlErrors } = await client.queries.getExportDownload({ jobId: job.id });
-          if (dlErrors?.length || !dl) {
-            setState({ phase: "failed", jobId: job.id, message: dlErrors?.[0]?.message ?? "The file is ready but the link could not be made." });
-          } else {
-            setState({ phase: "ready", jobId: job.id, url: dl.url, fileName: dl.fileName });
-          }
-          return;
-        }
-        if (current?.status === "FAILED") {
-          setState({ phase: "failed", jobId: job.id, message: current.error ?? "The render failed." });
-          return;
-        }
-        if (Date.now() - since > GIVE_UP_MS) {
-          setState({ phase: "failed", jobId: job.id, message: "The render is taking longer than five minutes. Try again later." });
-          return;
-        }
-        timer.current = setTimeout(poll, POLL_MS);
-      };
-      timer.current = setTimeout(poll, POLL_MS);
+      follow(job.id);
     },
-    []
+    [follow]
   );
 
-  return { state, start, reset };
+  return { state, start, follow, reset };
 }

@@ -11,8 +11,11 @@ import EntitlementsProvider, {
 import AppShell from "@/app/components/AppShell";
 import AuthModal from "@/app/components/AuthModal";
 import TwoStepSetup from "@/app/components/TwoStepSetup";
+import { DoorProvider } from "@/app/components/DoorContext";
 import { siteConfig } from "@/config/site";
 import { AUTH_CHECK_UNAVAILABLE_MESSAGE } from "@/lib/auth-policy";
+import { OutboxProvider } from "@/lib/offline/react";
+import { offlineSenders } from "@/config/offline";
 
 function Spinner() {
   return (
@@ -145,7 +148,7 @@ function SignInCheckUnavailable() {
 function AppGate({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { isAuthenticated, isLoading: authLoading, user } = useAuth();
-  const { isLoading, needsOnboarding } = useEntitlements();
+  const { isLoading, needsOnboarding, userRecord } = useEntitlements();
   const mfaSetupRequired = user?.mfaSetupRequired ?? false;
   const authCheckUnavailable = user?.authCheckUnavailable ?? false;
   const groupless = mfaSetupRequired || authCheckUnavailable;
@@ -164,7 +167,18 @@ function AppGate({ children }: { children: ReactNode }) {
   if (mfaSetupRequired) return <TwoStepRequired />;
   if (isLoading || needsOnboarding) return <Spinner />;
 
-  return <AppShell>{children}</AppShell>;
+  // One device outbox per person and organization (lib/offline): work
+  // saved with no signal keeps sending from any screen. The door is one
+  // for the whole app (docs/shell.md, Doors); both need a signed-in
+  // member, so they mount here, inside the gate, around the frame.
+  const outboxNamespace = user?.userId && userRecord?.orgId ? `${user.userId}:${userRecord.orgId}` : null;
+  return (
+    <OutboxProvider namespace={outboxNamespace} senders={offlineSenders}>
+      <DoorProvider>
+        <AppShell>{children}</AppShell>
+      </DoorProvider>
+    </OutboxProvider>
+  );
 }
 
 export default function AppLayout({ children }: { children: ReactNode }) {

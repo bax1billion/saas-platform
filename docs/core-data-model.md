@@ -86,6 +86,11 @@ Three kinds of models are deliberately *not* tenant-scoped:
   needs to adopt, hide or annotate a row, that is a small org-scoped model
   of its own pointing at the reference row by id.
 
+Enums a module schema may `a.ref` and no module owns (`FileValidationStatus`)
+live in `amplify/data/shared-types.ts` and are composed into the foundation
+schema and into every data domain's schema (`docs/data-domains.md` § 3.6),
+since a domain API is its own schema and must define every type it names.
+
 An optional second scoping level exists via `Site` (a location/facility within
 an org). Models that support per-site partitioning carry an optional
 `siteId: a.id()`; `siteId = null` means org-wide.

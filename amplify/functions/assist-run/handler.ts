@@ -1,3 +1,4 @@
+import { operationName } from '../../shared/appsync-event';
 import { createHash } from 'node:crypto';
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import type { Schema } from '../../data/resource';
@@ -186,15 +187,15 @@ export async function assistDecide(args: DecideArgs, identity: Identity) {
   return { eventId: updated.updateAssistEvent.id, state: updated.updateAssistEvent.state };
 }
 
-type AnyEvent = { info: { fieldName: string }; arguments: Record<string, unknown>; identity: Identity };
+type AnyEvent = { fieldName?: string; info?: { fieldName?: string } | null; arguments: Record<string, unknown>; identity: Identity };
 
 export const handler = async (event: AnyEvent) => {
-  switch (event.info.fieldName) {
+  switch (operationName(event)) {
     case 'assistRun':
       return assistRun(event.arguments as RunArgs, event.identity);
     case 'assistDecide':
       return assistDecide(event.arguments as DecideArgs, event.identity);
     default:
-      throw new Error(`Unknown field ${event.info.fieldName}`);
+      throw new Error(`Unknown field ${operationName(event)}`);
   }
 };

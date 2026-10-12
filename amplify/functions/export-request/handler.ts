@@ -4,7 +4,8 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { graphql } from '../../shared/graphql';
 import { exportProviders } from '../../data/export-providers';
 import { ADMIN } from '../../shared/constants';
-import { exportFileName, validateDocument } from '../../../lib/export/model';
+import { queueExportJob } from '../../shared/export/queue';
+import { operationName, type OperationEvent } from '../../shared/appsync-event';
 
 /**
  * Two operations, dispatched by field name like the module commands:
@@ -57,47 +58,15 @@ export async function requestExport(args: RequestArgs, identity: Identity) {
   const provider = exportProviders[args.recordType];
   if (!provider) throw new Error(`Nothing exports a "${args.recordType}" record yet.`);
 
-  const requestedAt = new Date().toISOString();
-  const built = await provider.build({
-    orgId: caller.orgId,
-    callerSub: caller.sub,
-    groups: caller.groups,
+  const { job } = await queueExportJob({
+    provider,
+    format: args.format,
+    template: args.template,
     recordId: args.recordId,
-    template: args.template ?? null,
-    requestedAt,
+    caller,
     graphql,
   });
-  if (!built.ok) throw new Error(built.reason);
-
-  const problems = validateDocument(built.document);
-  if (problems.length) throw new Error(problems[0]);
-
-  const ext = args.format === 'DOCX' ? 'docx' : 'pdf';
-  const fileName = exportFileName(built.document, ext);
-  const res = await graphql<{ createExportJob: { id: string } }>(
-    `mutation Q($input: CreateExportJobInput!) {
-      createExportJob(input: $input) {
-        id orgId recordType recordId template format status fileName dataDate requestedBy
-        s3Key sha256 sizeBytes pageCount rendererVersion error isDeleted sortDate createdAt updatedAt
-      }
-    }`,
-    {
-      input: {
-        orgId: caller.orgId,
-        recordType: args.recordType,
-        recordId: args.recordId,
-        template: built.document.meta.templateVersion,
-        format: args.format,
-        status: 'QUEUED',
-        fileName,
-        document: JSON.stringify(built.document),
-        dataDate: built.document.meta.dataDate,
-        requestedBy: caller.sub,
-        sortDate: requestedAt,
-      },
-    }
-  );
-  return res.createExportJob;
+  return job;
 }
 
 export async function getExportDownload(args: DownloadArgs, identity: Identity) {
@@ -127,19 +96,19 @@ export async function getExportDownload(args: DownloadArgs, identity: Identity) 
   };
 }
 
-type AnyEvent = {
-  info: { fieldName: string };
+type AnyEvent = OperationEvent & {
   arguments: Record<string, unknown>;
   identity: Identity;
 };
 
 export const handler = async (event: AnyEvent) => {
-  switch (event.info.fieldName) {
+  const field = operationName(event);
+  switch (field) {
     case 'requestExport':
       return requestExport(event.arguments as RequestArgs, event.identity);
     case 'getExportDownload':
       return getExportDownload(event.arguments as DownloadArgs, event.identity);
     default:
-      throw new Error(`Unknown field ${event.info.fieldName}`);
+      throw new Error(`Unknown field ${field}`);
   }
 };

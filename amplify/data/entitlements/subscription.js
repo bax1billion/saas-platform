@@ -48,13 +48,17 @@ export function response(ctx) {
     );
   }
 
+  // One module id, or a list of ids any one of which may write (a table one
+  // module owns whose writes another module's screens also make).
   const required = FIELD_MODULE[ctx.info.fieldName];
   if (required) {
+    const anyOf = Array.isArray(required) ? required : [required];
     const subModules = sub && Array.isArray(sub.modules) ? sub.modules : [];
     const granted = subModules.concat(ent.orgModules || []);
-    if (!granted.includes(required)) {
+    const held = anyOf.filter((m) => granted.includes(m));
+    if (held.length === 0) {
       util.error(
-        'The "' + required + '" module is not licensed for this organization.',
+        'The "' + anyOf.join('" or "') + '" module is not licensed for this organization.',
         'ModuleRequired'
       );
     }

@@ -27,18 +27,20 @@ upstream contribution: *would the next unrelated vertical use this unchanged?*
 | Path | What lives there |
 |---|---|
 | `app/` | public pages (landing, blog, `modules/[id]`) and the signed-in app under `app/(app)/`; **thin** route files only. `(app)/layout.tsx` is the auth/onboarding gate |
-| `app/components/` | providers (Amplify, Auth, Entitlements, Theme), `AppShell`, `ModuleShell`, `ModulePreviewHome`, `FlagIt`, `AssistSuggestion`, landing sections |
+| `app/components/` | providers (Amplify, Auth, Entitlements, Theme, Door), `AppShell` and the frame pieces in `shell/` (`docs/shell.md`), `ModuleShell`, `ModulePreviewHome`, `FlagIt`, `SyncPill`, `AssistSuggestion`, landing sections |
 | `modules/<id>/` | a module's `module.ts` (client-safe `ModuleDef`), `components/` (real UI), `lib/` (pure logic + tests). Downstream-owned |
-| `config/` | product switchboard: `site.ts`, `modules.ts` (registry), `pricing.ts`, `landing.ts`, `theme.css`. Downstream-owned; the foundation ships neutral defaults |
+| `config/` | product switchboard: `site.ts`, `modules.ts` (registry), `pricing.ts`, `landing.ts`, `theme.css`, `shell.ts` (the frame's places and strings), `offline.ts` (outbox senders), `data-domains.ts`. Downstream-owned; the foundation ships neutral defaults |
 | `amplify/data/resource.ts` | foundation schema (Organization/User/Site/EventLog/billing/TesterFlag/AssistEvent/ExportJob) |
-| `amplify/data/vertical.ts` | the product seam: composes every module schema from `amplify/data/modules/<id>.ts`, plus `verticalRecordAccess` and `applyVerticalBackend` for product CDK wiring |
+| `amplify/data/vertical.ts` | the per-module registry (`moduleContributions`) composing `amplify/data/modules/<id>.ts` into the foundation API, filtered by `BACKEND_MODULES` and by each module's data domain; `applyVerticalBackend` for product CDK wiring |
+| `amplify/data/domains/` | the data domains (`docs/data-domains.md`): `assignments.ts` names them and which module sits on which (downstream-owned, empty here), `registry.ts` composes each one's schema, `index.ts` builds and wires every composed domain in one loop |
 | `amplify/data/{entitlements,record-access}/` | APPSYNC_JS pipeline steps (`.js`) + their tests |
 | `amplify/functions/<name>/` | Lambdas (`resource.ts` + `handler.ts`); some have their own `package.json` |
 | `amplify/custom/<name>/` | Raw CDK constructs for what `defineFunction` cannot package (the media CDN's sharp transform, the export renderer's react-pdf): a `NodejsFunction` with an install hook, wired by hand in `backend.ts` |
 | `amplify/data/assist-helpers.ts` | Product seam for Assist: one helper per job (`amplify/shared/assist/types.ts`), run by `assistRun`; `docs/spine-services-design.md` § 2 |
 | `amplify/data/export-providers.ts` | Product seam for the export service: one provider per record type builds the document model (`lib/export/model.ts`); `docs/spine-services-design.md` § 3 |
-| `lib/` | shared utils (`cn()`, `getDataClient()`, module entitlement logic, `roles.ts`, `time/` zone-aware clock and ISO-date math used by client and Lambdas, `export/`, `assist/`) |
-| `scripts/` | check scripts (`check-backend`, `check-cfn-cycles`, `check-resolvers`) |
+| `lib/` | shared utils (`cn()`, `getDataClient()` and `getModuleClient()`, module entitlement logic, `roles.ts`, `time/` zone-aware clock and ISO-date math used by client and Lambdas, `export/`, `assist/`, `shell/` and `hooks/` for the app frame) |
+| `lib/offline/` | the device outbox (`docs/offline.md`): writes saved on the device and sent in order when there is signal; `OutboxProvider` in `app/(app)/layout.tsx`, one sender per module in `config/offline.ts` |
+| `scripts/` | check scripts (`check-backend`, `check-cfn-cycles`, `check-resolvers`), `sandbox` (staged deploys), `generate-domains` |
 | `docs/` | design docs and playbooks |
 
 Path alias `@/*` maps to the repo root, **except inside `amplify/`** (see Gotchas).
@@ -56,6 +58,8 @@ npm run lint                   # eslint (next core-web-vitals + typescript)
 npm run check:backend          # full local CDK synth + CFN cycle scan, no AWS creds (~40s)
 npm run check:entitlements     # entitlement decision-table tests
 npm run check:resolvers -- --profile <aws-profile>  # validate APPSYNC_JS via AppSync (needs AWS creds)
+npm run sandbox -- --profile <aws-profile> --modules none --once   # a sandbox, in stages (docs/bootstrap.md)
+npm run generate:domains       # regenerate lib/data-domains/<domain>.introspection.json from the domain schemas
 npx next build                 # production build
 ```
 
@@ -94,9 +98,18 @@ For local checks without a sandbox: `test -f amplify_outputs.json || echo '{}' >
   most common deploy failure; APPSYNC_JS steps go in `Stack.of(dataSource)`, not `Stack.of(graphqlApi)`.
   Product-specific CDK goes in `applyVerticalBackend` (`amplify/data/vertical.ts`), never in `backend.ts`.
 - **Adding a module:** follow `docs/adding-a-module.md` end to end (registry entry, theme token,
-  schema file, `vertical.ts` composition, thin routes with `<ModuleShell>`, tests).
+  schema file, its `moduleContributions` entry in `vertical.ts`, its data domain line, thin routes
+  with `<ModuleShell>`, tests).
+- **Data domains** (`docs/data-domains.md`): the foundation API holds organizations, users,
+  entitlements and the shared services; once a product declares domains, a module's tables live on
+  its product group's own AppSync API (one per group, each with its own CloudFormation caps),
+  chosen by one line in `amplify/data/domains/assignments.ts`. A module's screens reach its rows
+  with `getModuleClient("<id>")`, its Lambdas with `graphql(query, vars, moduleApi('<id>'))`; the
+  foundation's rows stay on the foundation client. The foundation ships no domain.
 - **Module boundaries** (`docs/data-coupling.md`): one owning module per table, and nothing else
-  writes it. `modules/<a>/` never imports from `modules/<b>/` (eslint fails the PR); a schema file
+  writes it, except through write code the owner publishes under `lib/` (gated to either module by
+  `sharedModuleTables`). `modules/<a>/` never imports from `modules/<b>/` (eslint fails the PR); a
+  schema file
   never `a.ref`s / relates to another module's models (`lib/schema-boundaries.test.ts`); a module
   reads another's data only through its published contract and must work when that module is not
   licensed. Cross-module effects travel as events into the owner's stream handler.
@@ -114,6 +127,13 @@ For local checks without a sandbox: `test -f amplify_outputs.json || echo '{}' >
 - Styling: semantic Tailwind tokens (`bg-primary`, `text-muted-foreground`, `var(--module-accent)`).
   No hex literals outside `config/theme.css`; no brand-named utilities in new code. Group colours
   (`--group-<id>`) mark headers and chips only; never a product accent.
+- **The app frame owns the chrome** (`docs/shell.md`): three sidebar states (FULL, COMPACT when a
+  module's section rail is open, hidden on a phone), one `SectionRail` with scroll spy, one door
+  switch, a phone toolbar that never auto-hides. A module never draws its own sidebar, top bar or
+  door switch; it registers sections and navigation data. The door (Field, Station, Admin) comes
+  from `useDoor()` in `app/components/DoorContext.tsx`; the frame's places and strings are a
+  product's values in `config/shell.ts`. Browser storage lives in `lib/shell/preference-store.ts`
+  only (a test fails any other file).
 - Product strings come from `config/`, not hardcoded in foundation files.
 - Line endings are LF (`.gitattributes`).
 - **Commits:** `<area>: <imperative subject>`, e.g. `foundation: ...`, `docs: ...`, `fix: ...`.
@@ -150,11 +170,17 @@ For local checks without a sandbox: `test -f amplify_outputs.json || echo '{}' >
   regex literals, `++`, `Function.call/apply/bind`. Vitest will pass code AppSync rejects at deploy;
   `amplify/data/appsync-js.test.ts` is the static guard and `npm run check:resolvers` the real one.
 - No `.default()` on field-auth read-only columns; defaults apply before field auth and break creates.
-- Never send `id` on a create. Once any column on a model carries a field-level rule, the create
-  resolver checks every input field against an explicit allowed list, and an undeclared `id` is not
-  on it ("Unauthorized on [id]"); declaring `id` to allow it adds a pipeline function, and a gated
-  model's mutations already sit at AppSync's limit of ten ("A resolver can only be composed of 10
-  functions"). Create the row first and use the server's id afterwards.
+- Never send `id` on a create. When the caller is authorized only through a rule that names its
+  fields (an owner rule on one column, a field-level rule), the generated auth step checks every
+  input field against that list and an undeclared `id` is not on it ("Unauthorized on [id]"); a
+  caller a group rule authorizes on every field (Admin, Member on most models) is not checked, so
+  one module's creates may take a client id while another's do not. The rule is the same either
+  way, since the next field rule changes the answer: declaring `id` to allow it adds a pipeline
+  function, and a gated model's mutations already sit at AppSync's limit of ten ("A resolver can
+  only be composed of 10 functions"). Create the row first and use the server's id afterwards.
+- AppSync's condition input for an enum column has only `eq` and `ne`: a handler's
+  `attributeExists` on an enum condition fails every write at run time. Assert on a string or
+  timestamp column instead.
 - `MEDIA_CDN_PRIVATE_KEY` must exist as a secret in each environment or the deploy fails
   (placeholder fine). Module prices are one secret, `STRIPE_MODULE_PRICES` (JSON, module id to
   Stripe Price id), bound only in an environment that may sell a module (`sellableModules` or
@@ -163,9 +189,22 @@ For local checks without a sandbox: `test -f amplify_outputs.json || echo '{}' >
 - Some Lambdas are wired but still stubbed (`event-logger`, `organization-trigger`,
   `newsletter-subscriber-trigger`, `ses-webhook-handler` DB updates): wiring deploying
   does not mean behavior works. Parts of `docs/` predate current conventions; code wins over docs.
+- A function behind `a.handler.function` receives Amplify's invoke payload, `{ typeName, fieldName,
+  arguments, identity, source, request, prev }`, with `fieldName` at the top. The aws-lambda
+  `AppSyncResolverEvent` type puts it under `info`, so `event.info.fieldName` typechecks, passes
+  synth, and throws "Cannot read properties of undefined (reading 'fieldName')" on the first real
+  call (every command handler of one product had it). Read the name with `operationName(event)`
+  from `amplify/shared/appsync-event.ts`, never from `info`.
+- An ESM `NodejsFunction` (`amplify/custom/`) that bundles the AWS SDK needs the `createRequire`
+  banner in its bundling options: the SDK is CommonJS and calls `require()` for Node built-ins on
+  its first request, and esbuild's shim throws "Dynamic require of "node:https" is not supported".
 - A command Lambda called by another Lambda over IAM has no Cognito `sub`: `resolveCaller`-style
   helpers refuse it. Give such a path an explicit, narrowly scoped system caller rather than
   widening the user path.
+- Outbound notifications: `dispatch()` in `amplify/shared/notify.ts` is the one seam every module
+  sends through. `log` mode only simulates sends and must be refused on deployed branches
+  (`NOTIFY_MODE`, set by `amplify/backend.ts` or `applyVerticalBackend`; unset reads as `none`).
+  Provider adapters plug in behind `dispatch()`. Do not add a second bespoke sender.
 - Amplify's data client authorizes AppSync with the **access token**, so anything that must
   change what AppSync sees (groups, a marker claim) has to land on that token. A Cognito pre
   token generation trigger attached by `defineAuth` is version 1 and edits the ID token only;
@@ -177,6 +216,42 @@ For local checks without a sandbox: `test -f amplify_outputs.json || echo '{}' >
   role. Any grant made only to `allow.authenticated` (storage) or `authenticatedUserIamRole`
   (custom constructs) reaches nobody in a group, which is every onboarded user. Grant the org
   groups too (`allow.groups([...])`; `backend.auth.resources.groups[g].role`), never Operator.
+- CloudFormation caps a stack at 500 resources and CDK refuses to synthesize past it ("Number of
+  resources in stack ... is greater than allowed maximum of 500"), at the end of the synth, after
+  `check:backend` has already printed "synth OK". The data stack holds every schema-granted
+  function with its role and policies and one event source mapping per stream consumer; the
+  stream-ARN lookups (a custom resource per streamed table) live in the `streams` nested stack
+  under it (`amplify/backend.ts` #1). A new module adds a model stack per model and a function's
+  worth of role and policies per command; the counts are in the synthesized templates under
+  `.amplify/local-check/`, and `check:backend` prints one line per API. Never move an event source
+  mapping between stacks: CloudFormation creates the new one before it deletes the old one and
+  Lambda allows one mapping per stream and function ("provided mapping already exists"). The
+  nested stack has its own caps of 200 parameters and 200 outputs.
+- IAM caps a role's inline policies at 10,240 bytes, and only at deploy time ("Maximum policy
+  size of 10240 bytes exceeded for role"). Every `AwsCustomResource` in a stack shares one provider
+  Lambda, and each one given its own `policy` adds an inline policy to that role, so a hundred
+  lookups overflow it. Give such resources one shared `role` (the stream lookups in
+  `amplify/backend.ts` #1 do), never a policy each.
+- CloudFormation also refuses a template body over 1,000,000 bytes, and only at deploy time
+  ("Template may not exceed 1000000 bytes in size"). Every model is a nested stack resource with
+  parameters, every function a role and policies, every streamed table a mapping.
+  `amplify/backend.ts` #9 synthesizes every stack without indentation (about a fifth smaller);
+  `check:backend` fails on an indented or oversized template and warns past 85%. Past that, the
+  lever is a data domain per product group (`docs/data-domains.md`), not a smaller module.
+- CloudFormation also caps one stack operation at 2,500 resources across the root and every nested
+  stack it touches ("Limit on the number of resources in a single stack operation exceeded"; not
+  adjustable). A backend of 130 models synthesizes to about 6,800 resources, so a from-scratch
+  deploy fails; environments that grew by updates never notice. A new environment is bootstrapped
+  in stages with `BACKEND_MODULES` (`docs/bootstrap.md`: `none`, then batches of about 40 models,
+  then unset). A module left out of the list is deleted from the environment, tables included.
+  Never test a change by creating a fresh stack of the whole backend.
+- A function of a module on a data domain declares `resourceGroupName: domainStackName('<domain>')`
+  (`amplify/data/domains/assignments.ts`) so it lives in the domain's stack: its environment reads the
+  domain API's URL and the API's data source names the function's ARN, which is a cycle between two
+  stacks and same-stack references in one. The domain builder refuses a function elsewhere. A domain
+  function reaches its own rows with `graphql(query, vars, moduleApi('<id>'))`
+  (`amplify/shared/graphql.ts`) and the caller with the plain call; it is never granted on the
+  foundation schema.
 - Stale `.next/types` errors after switching branches: `rm -rf .next`.
 - The Hosting build dies in "Running TypeScript" with "JavaScript heap out of memory" when the
   frontend type check outgrows Node's default heap (about 2 GiB on the Standard 8 GiB build box).

@@ -9,6 +9,7 @@ import { unmarshall } from '@aws-sdk/util-dynamodb';
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import sharp from 'sharp';
 import { assetKeys, validateDocument, type DocumentModel } from '../../../lib/export/model';
+import { renderCsv } from '../../../lib/export/csv';
 import { RENDERER_VERSION, countPages, renderPdf } from './pdf';
 
 /**
@@ -101,10 +102,42 @@ async function loadImage(key: string): Promise<Buffer | null> {
   }
 }
 
+/** Write the file under the job's key and move the row to READY. */
+async function store(job: JobImage, body: Buffer, contentType: string, pageCount: number | null) {
+  const sha256 = createHash('sha256').update(body).digest('hex');
+  const s3Key = `exports/${job.orgId}/${job.id}/${job.fileName}`;
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: s3Key,
+      Body: body,
+      ContentType: contentType,
+      Metadata: { 'export-job': job.id, sha256, renderer: RENDERER_VERSION },
+    })
+  );
+  await finish(job.id, {
+    status: 'READY',
+    s3Key,
+    sha256,
+    sizeBytes: body.length,
+    pageCount,
+    rendererVersion: RENDERER_VERSION,
+    error: null,
+  });
+}
+
 export async function renderJob(job: JobImage): Promise<void> {
   const doc = (typeof job.document === 'string' ? JSON.parse(job.document) : job.document) as DocumentModel;
   const problems = validateDocument(doc);
   if (problems.length) throw new Error(problems[0]);
+
+  if (job.format === 'CSV') {
+    // One table, rows only: a payroll or spreadsheet import (lib/export/csv.ts).
+    const body = Buffer.from(renderCsv(doc), 'utf8');
+    await store(job, body, 'text/csv; charset=utf-8', null);
+    console.log('export-renderer: ready', { id: job.id, bytes: body.length, format: 'CSV' });
+    return;
+  }
   if (job.format !== 'PDF') throw new Error(`${job.format} is not rendered yet.`);
 
   const images = new Map<string, Buffer>();
@@ -114,26 +147,7 @@ export async function renderJob(job: JobImage): Promise<void> {
   }
 
   const pdf = await renderPdf(doc, { images }, FONTS_DIR);
-  const sha256 = createHash('sha256').update(pdf).digest('hex');
-  const s3Key = `exports/${job.orgId}/${job.id}/${job.fileName}`;
-  await s3.send(
-    new PutObjectCommand({
-      Bucket: BUCKET,
-      Key: s3Key,
-      Body: pdf,
-      ContentType: 'application/pdf',
-      Metadata: { 'export-job': job.id, sha256, renderer: RENDERER_VERSION },
-    })
-  );
-  await finish(job.id, {
-    status: 'READY',
-    s3Key,
-    sha256,
-    sizeBytes: pdf.length,
-    pageCount: countPages(pdf),
-    rendererVersion: RENDERER_VERSION,
-    error: null,
-  });
+  await store(job, pdf, 'application/pdf', countPages(pdf));
   console.log('export-renderer: ready', { id: job.id, bytes: pdf.length, images: images.size });
 }
 

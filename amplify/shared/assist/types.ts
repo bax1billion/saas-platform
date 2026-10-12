@@ -1,3 +1,4 @@
+import type { GraphqlTarget } from '../graphql';
 /**
  * The Assist helper seam (docs/spine-services-design.md § 2, pattern A).
  * A product registers helpers in amplify/data/assist-helpers.ts; the
@@ -24,7 +25,8 @@ export interface AssistRunContext {
   recordId: string;
   /** A finer target inside the record, e.g. one media item of a case. */
   targetId?: string | null;
-  graphql: <T>(query: string, variables?: Record<string, unknown>) => Promise<T>;
+  /** The shared AppSync client; a helper passes the target of the module whose rows it reads (amplify/shared/graphql.ts `moduleApi`). */
+  graphql: <T>(query: string, variables?: Record<string, unknown>, target?: GraphqlTarget) => Promise<T>;
   /** Read one stored object (allow-listed by the helper), e.g. an image. */
   readObject: (key: string) => Promise<{ bytes: Uint8Array; contentType: string } | null>;
 }

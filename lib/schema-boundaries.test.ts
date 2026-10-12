@@ -49,7 +49,12 @@ describe("schema boundary checker", () => {
 describe("amplify/data/modules", () => {
   // A product with no module schema files yet has nothing to check.
   it.skipIf(!existsSync(modulesDir))("never references another module's models (docs/data-coupling.md rule 3)", () => {
-    const core = declaredNames(readFileSync(join(root, "amplify", "data", "resource.ts"), "utf8"));
+    // The foundation's names: the foundation schema and the shared types
+    // every API composes (amplify/data/shared-types.ts, docs/data-domains.md § 8).
+    const core = new Set([
+      ...declaredNames(readFileSync(join(root, "amplify", "data", "resource.ts"), "utf8")),
+      ...declaredNames(readFileSync(join(root, "amplify", "data", "shared-types.ts"), "utf8")),
+    ]);
     expect(core.size).toBeGreaterThan(5);
     const files = readdirSync(modulesDir)
       .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))

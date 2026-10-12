@@ -11,6 +11,7 @@ import { getMediaUrlsFunction } from '../functions/get-media-urls/resource';
 import { orgAuthPolicyFunction } from '../functions/org-auth-policy/resource';
 import { exportRequestFunction } from '../functions/export-request/resource';
 import { assistRunFunction } from '../functions/assist-run/resource';
+import { sharedTypes } from './shared-types';
 import {
   verticalModels,
   verticalEntityTypes,
@@ -34,14 +35,9 @@ const schema = a
     // Enums
     // ═══════════════════════════════════════════════════════════════════
 
-    /** Lifecycle for uploaded files (used by vertical file-bearing models
-     *  and the s3-file-trigger validation pipeline). */
-    FileValidationStatus: a.enum([
-      'PENDING',
-      'VALID',
-      'INVALID',
-      'QUARANTINED',
-    ]),
+    // Enums module schemas reference and no module owns; every data
+    // domain's API composes them too (amplify/data/shared-types.ts).
+    ...sharedTypes,
 
     SubscriberStatus: a.enum([
       'PENDING',
@@ -274,8 +270,9 @@ const schema = a
       .disableOperations(['subscriptions'])
       .authorization((allow) => [allow.groups(['Admin']).to(['read'])]),
 
-    /** Document export formats the export service renders. */
-    ExportFormat: a.enum(['PDF', 'DOCX']),
+    /** Document export formats the export service renders: PDF and Word
+     *  documents, and CSV for a document that is one table (lib/export/csv.ts). */
+    ExportFormat: a.enum(['PDF', 'DOCX', 'CSV']),
     ExportStatus: a.enum(['QUEUED', 'RENDERING', 'READY', 'FAILED']),
 
     /** One export of one record (docs/spine-services-design.md § 3): the

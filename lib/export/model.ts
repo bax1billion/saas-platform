@@ -137,8 +137,12 @@ export function validateDocument(doc: unknown): string[] {
   return errors;
 }
 
+/** The file extension for each export format the service renders. */
+export const EXPORT_EXTENSION = { PDF: "pdf", DOCX: "docx", CSV: "csv" } as const;
+export type ExportFormatId = keyof typeof EXPORT_EXTENSION;
+
 /** A stable file name: `<Agency>-<Record>-<Document>-<data date>-v1.<ext>`. */
-export function exportFileName(doc: DocumentModel, ext: "pdf" | "docx"): string {
+export function exportFileName(doc: DocumentModel, ext: (typeof EXPORT_EXTENSION)[ExportFormatId]): string {
   const part = (s: string) =>
     s
       .normalize("NFKD")

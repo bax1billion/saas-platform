@@ -1,3 +1,4 @@
+import type { GraphqlTarget } from '../graphql';
 import type { DocumentModel } from '../../../lib/export/model';
 
 /**
@@ -21,7 +22,8 @@ export interface ExportRequestContext {
   template?: string | null;
   /** ISO datetime the request arrived; the document's data date. */
   requestedAt: string;
-  graphql: <T>(query: string, variables?: Record<string, unknown>) => Promise<T>;
+  /** The caller's IAM GraphQL call; a provider passes `moduleApi('<id>')` for a module's rows on a data domain. */
+  graphql: <T>(query: string, variables?: Record<string, unknown>, target?: GraphqlTarget) => Promise<T>;
 }
 
 export type ExportBuildResult =

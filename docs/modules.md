@@ -336,6 +336,11 @@ Everything else about a command is a cost you take on:
   and an unlicensed org has a side door into a paid module.
 - Multi-row work inside one invocation has no transaction. If it fails
   halfway, you own the cleanup.
+- The handler is dispatched on the operation name, and Amplify sends it
+  at the top of the payload (`fieldName`), not under `info` as the
+  aws-lambda type says. Read it with `operationName(event)` from
+  `amplify/shared/appsync-event.ts`; `event.info.fieldName` typechecks and
+  fails on the first real call (CLAUDE.md, Gotchas).
 
 If you reach for a command, say in the module doc why the stream shape
 didn't fit.

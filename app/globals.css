@@ -73,8 +73,25 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-body), ui-sans-serif, system-ui, sans-serif;
-  font-size: 16px;
+  /* 1rem is 16px until the member picks a text size (below); keeping it in
+     rem lets the whole app scale with the root like a browser zoom. */
+  font-size: 1rem;
   line-height: 1.5;
+}
+
+/* Member text size (Me, the avatar menu; docs/shell.md). Set on <html> by the
+   app frame so rem-based spacing scales with the type. */
+html[data-text-size="large"] {
+  font-size: 112.5%;
+}
+html[data-text-size="largest"] {
+  font-size: 125%;
+}
+
+/* A section a page registers with the section rail: a jump lands with the
+   title visible under the sticky bars. */
+.section-anchor {
+  scroll-margin-top: calc(var(--bs-top-h) + var(--bs-rail-h) + 0.75rem);
 }
 
 /* Blog prose overrides — semantic tokens only */
