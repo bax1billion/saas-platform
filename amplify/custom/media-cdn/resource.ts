@@ -73,6 +73,12 @@ export function createMediaCdn(stack: Stack, props: MediaCdnProps) {
     },
     bundling: {
       format: OutputFormat.ESM,
+      // The AWS SDK is CommonJS and calls require() for Node built-ins on
+      // its first request; an ESM bundle has no require, so esbuild's shim
+      // throws "Dynamic require of "node:https" is not supported" on the
+      // first S3 call (the export renderer hit exactly this on its first
+      // real run). Give the bundle a real one.
+      banner: "import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);",
       // sharp ships native binaries — install linux/arm64 ones into the
       // asset instead of bundling (npm >= 10.4 for --cpu/--os/--libc).
       externalModules: ['sharp'],

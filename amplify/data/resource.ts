@@ -270,8 +270,9 @@ const schema = a
       .disableOperations(['subscriptions'])
       .authorization((allow) => [allow.groups(['Admin']).to(['read'])]),
 
-    /** Document export formats the export service renders. */
-    ExportFormat: a.enum(['PDF', 'DOCX']),
+    /** Document export formats the export service renders: PDF and Word
+     *  documents, and CSV for a document that is one table (lib/export/csv.ts). */
+    ExportFormat: a.enum(['PDF', 'DOCX', 'CSV']),
     ExportStatus: a.enum(['QUEUED', 'RENDERING', 'READY', 'FAILED']),
 
     /** One export of one record (docs/spine-services-design.md § 3): the

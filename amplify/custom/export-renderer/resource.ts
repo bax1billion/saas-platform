@@ -51,6 +51,12 @@ export function createExportRenderer(stack: Stack, props: ExportRendererProps) {
     },
     bundling: {
       format: OutputFormat.ESM,
+      // The AWS SDK and other CommonJS dependencies call require() for
+      // Node built-ins when they first send a request. An ESM bundle has no
+      // require, so esbuild's shim threw "Dynamic require of "node:https" is
+      // not supported" on the first DynamoDB call, before the job was
+      // claimed, and every job stayed QUEUED. Give the bundle a real one.
+      banner: "import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);",
       externalModules: ['@react-pdf/renderer', 'react', 'sharp'],
       commandHooks: {
         beforeBundling: () => [],
