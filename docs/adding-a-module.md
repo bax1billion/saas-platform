@@ -70,11 +70,27 @@ no routes, no schema.
    - `sortDate` for chronological GSIs; `isDeleted` for soft delete
    - export the five values the vertical seam composes: `runModels`,
      `runEntityTypes`, `runEventActions`, `runOrgSeeds`, and `runStreamTables`
-2. **Compose** in `amplify/data/vertical.ts` — spread each export into the
-   `vertical*` aggregates and add `run: runStreamTables` to
-   `verticalModuleTables` (that map is what the backend entitlement steps
-   gate on).
-3. **Verify before any deploy:**
+2. **Register** in `amplify/data/vertical.ts` — one entry in
+   `moduleContributions` with the module's models, entity types, event
+   actions, seeds, stream tables, gated tables (`moduleTables`, what the
+   entitlement steps gate on), command mutations, functions, stream
+   consumers, record access and API pipeline steps. Everything the
+   foundation composes comes from that entry, filtered by
+   `BACKEND_MODULES` (`docs/bootstrap.md`).
+3. **Choose its data domain** (`docs/data-domains.md`) once the product
+   has declared domains: one line in `amplify/data/domains/assignments.ts`
+   `moduleDomains` puts the module's tables on its product group's API;
+   add `typeof runModels` to the domain's type line in
+   `amplify/data/domains/registry.ts`, give each of its functions
+   `resourceGroupName: domainStackName('<domain>')`, point its handlers'
+   own-row calls at `moduleApi('run')`, use `getModuleClient("run")` in
+   its screens, and run `npm run generate:domains`. A module with no line
+   stays on the foundation API; once that API nears its caps, new modules
+   go on a domain. An operation the foundation alone can authorize (a
+   public API-key query) stays there through the entry's
+   `foundationModels` and `foundationFunctions`, and its Lambda reads the
+   module's rows on the domain with `moduleApi('<id>')`.
+4. **Verify before any deploy:**
    ```bash
    npx tsc --noEmit
    npm run check:backend        # full local CDK synth — prints
@@ -113,7 +129,10 @@ because the row exists by the time the handler sees it and "rejected" has
 to become write-then-mark-invalid. Additionally:
 - the schema file declares the mutations with `a.handler.function(fn)` and
   exports `<id>CommandMutations` (their field names);
-- `vertical.ts` spreads those into `verticalModuleMutations` — **required**,
+- the handler reads the operation name with `operationName(event)` from
+  `amplify/shared/appsync-event.ts`, never `event.info.fieldName` (which
+  typechecks and fails on the first real call, CLAUDE.md Gotchas);
+- the registry entry lists those as `moduleMutations` — **required**,
   or the command is an ungated side door into a paid module;
 - the handler enforces tenancy itself: `allow.resource` bypasses every
   model *and* field rule, so load the row and compare its `orgId` with the

@@ -35,7 +35,16 @@ enforced by ownership, not by hope.
    No other module's code, client or Lambda, writes to it. Not even "just
    one field." Inside a module, columns may have different writers through
    field-level authorization (`docs/core-data-model.md` §2.5); that stays
-   inside the module.
+   inside the module. One shape is allowed across that line: an owning
+   module may publish the code that writes its table, as a contract under
+   `lib/` (the same place a module publishes its read models and
+   commands), for other modules' screens to call; nothing else ever
+   writes the row. Such a table is gated to the owner OR the caller's
+   module (`sharedModuleTables` in the module's registry entry,
+   `amplify/data/entitlements`), so an organization with only the
+   caller's module can still write it. The owner still owns the schema,
+   the indexes and the stream handlers; the caller never names the table,
+   and on a data domain the published code uses the owner's domain client.
 2. **Core is module-agnostic.** No core model carries a column that only
    one module understands. Module-specific attributes live in an extension
    table keyed by the core id. The one allowed escape is a small
@@ -174,6 +183,11 @@ replaced by the id plus a read.
   vertical's own hubs and their fields belong in the vertical seam
   (`amplify/data/vertical.ts`) as additions, the same way
   `verticalEventActions` extends the enum today.
+- **API boundary.** A module's tables live on its product group's own
+  AppSync API once the product declares data domains
+  (`docs/data-domains.md`); the hubs stay on the foundation API. The rules
+  above are what make that split free: every cross-module path is by id
+  or through published code, never through another module's tables.
 
 ---
 
@@ -185,7 +199,8 @@ Two checks run on every PR:
    reads every `amplify/data/modules/*.ts` and fails if a file references a
    model or enum through `a.ref`, `belongsTo`, `hasMany` or `hasOne` that is
    neither declared in that file nor a core name from
-   `amplify/data/resource.ts`. Comments are ignored. The test skips itself
+   `amplify/data/resource.ts` or `amplify/data/shared-types.ts` (the enums
+   every API composes). Comments are ignored. The test skips itself
    while a product has no `amplify/data/modules/` directory yet.
 2. **Import boundary lint** (`eslint.config.mjs`, CI step "Lint"):
    `modules/<a>/**` may not import `@/modules/<b>` or any relative path

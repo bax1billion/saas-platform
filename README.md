@@ -66,4 +66,8 @@ Set via `npx ampx sandbox secret set <NAME>` (see `.env.local` for the frontend 
 - [`docs/submit-then-verify.md`](docs/submit-then-verify.md) — client-created rows with a server-owned lifecycle
 - [`docs/operator-grants.md`](docs/operator-grants.md) — runbook: enabling a module for one customer without a purchase
 - [`docs/spine-services-design.md`](docs/spine-services-design.md) — the shared services: notifications (planned), Assist on Bedrock, document export
+- [`docs/data-domains.md`](docs/data-domains.md) — data domains: one AppSync API per product group, with its own CloudFormation caps
+- [`docs/bootstrap.md`](docs/bootstrap.md) — bootstrapping an environment in stages with `BACKEND_MODULES`
+- [`docs/shell.md`](docs/shell.md) — the app frame: sidebar states, section rail, doors, member preferences
+- [`docs/offline.md`](docs/offline.md) — the device outbox: writes saved on the device and sent in order when there is signal
 - [`CDK_WIRING_DEPLOY.md`](CDK_WIRING_DEPLOY.md) — how the custom CDK wiring avoids Amplify circular-dependency pitfalls
