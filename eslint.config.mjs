@@ -51,6 +51,8 @@ const eslintConfig = defineConfig([
     // parse; without this, running lint after check:backend has left
     // .amplify/ populated blows the heap trying to lint bundled JS.
     ".amplify/**",
+    // Build output copied into public/ on install (scripts/copy-maplibre-worker.mjs); not source.
+    "public/maplibre-gl-*.mjs",
   ]),
 ]);
 

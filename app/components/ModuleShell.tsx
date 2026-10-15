@@ -181,7 +181,9 @@ export default function ModuleShell({
           {headerExtra && <div className="ml-auto max-w-full">{headerExtra}</div>}
         </div>
         {!adminRail && (
-        <nav className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4 pt-3 sm:px-6">
+        // On a phone the tabs wrap to a second line instead of scrolling
+        // sideways, so every tab is in sight; from `sm` they keep one line.
+        <nav className="mx-auto flex max-w-7xl flex-wrap gap-x-1 px-4 pt-3 sm:flex-nowrap sm:overflow-x-auto sm:px-6">
           {nav.map((item) => {
             const active = item.href === activeHref;
             const Icon = item.icon;

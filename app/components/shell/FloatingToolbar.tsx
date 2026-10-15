@@ -29,11 +29,11 @@ function QuickButton() {
       <DialogContent className="top-auto bottom-0 left-1/2 max-w-md translate-y-0 rounded-b-none rounded-t-2xl p-5 pb-[max(20px,env(safe-area-inset-bottom))] data-[state=closed]:zoom-out-100 data-[state=open]:zoom-in-100 sm:max-w-md">
         <DialogHeader className="text-left">
           <DialogTitle>{shellLabels.quick}</DialogTitle>
-          <DialogDescription className="text-[17px] leading-snug">
+          <DialogDescription className="text-field leading-snug">
             Talk, photo, attach and tags arrive with the input box. Until then, Quick holds the one capture that works everywhere.
           </DialogDescription>
         </DialogHeader>
-        <FlagIt className="min-h-12 w-full justify-center text-[17px]" />
+        <FlagIt className="min-h-target w-full justify-center text-field" />
       </DialogContent>
     </Dialog>
   );

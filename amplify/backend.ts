@@ -36,10 +36,14 @@ import { describeComposition } from './shared/bootstrap';
 import { createMediaCdn } from './custom/media-cdn/resource';
 import { grantDomainUrlLookup, wireDataDomains } from './data/domains/index';
 import { createSandboxSeed } from './custom/sandbox-seed/resource';
+import { createPublicReadGuard } from './custom/public-read-guard/resource';
+import { createMapServices, mapsProviderArn } from './custom/location/resource';
+import { GROUPS } from './shared/constants';
 import { domainDefinitions } from './data/domains/registry';
 import { applyEntitlementEnforcement } from './data/entitlements/index';
 import { applyRecordAccess } from './data/record-access/index';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as location from 'aws-cdk-lib/aws-location';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import { StreamViewType } from 'aws-cdk-lib/aws-dynamodb';
@@ -701,6 +705,92 @@ const getMediaUrlsLambda = backend.getMediaUrlsFunction.resources
 getMediaUrlsLambda.addEnvironment('MEDIA_CDN_DOMAIN', mediaCdn.domain);
 getMediaUrlsLambda.addEnvironment('MEDIA_CDN_KEY_PAIR_ID', mediaCdn.keyPairId);
 getMediaUrlsLambda.addEnvironment('MEDIA_CDN_MODE', mediaCdn.mode);
+
+// ═══════════════════════════════════════════════════════════════════
+// #4d Amazon Location Service (the platform's maps: lib/map/,
+// amplify/custom/location/resource.ts, docs/map-engine.md § 2)
+// Basemaps from the Maps API and address search from the Places API, the
+// current standalone APIs: no per-environment map or place-index resource,
+// only IAM on the region's provider. Tile and search grants go on EVERY
+// signed-in role: Amplify gives each Cognito group its own Identity Pool
+// role, so granting only the base authenticated role would leave grouped
+// users unauthorized. The client reads the region and the public key from
+// outputs.custom.map (lib/map/location.ts). Own stack so the roles' policy
+// depends on it one way and nothing here depends on auth or data.
+// ═══════════════════════════════════════════════════════════════════
+
+const locationStack = backend.createStack('location');
+const mapServices = createMapServices(locationStack, {
+  roles: [
+    backend.auth.resources.authenticatedUserIamRole,
+    // The org groups, never Operator: it has no standing access to org
+    // data and nothing an Operator does draws a map (CLAUDE.md, Roles).
+    ...GROUPS.filter((g) => g !== 'Operator').map((g) => backend.auth.resources.groups[g].role),
+  ],
+});
+
+// A public, read-only key for the street map, for pages a person opens
+// with no account (a map shared by link). Amazon Location's own API-key
+// restrictions keep it to fetching map tiles (the style, glyphs and
+// sprites need no key), and only from this site's /share/ pages, so it
+// cannot geocode, route or search, and is useless from another site.
+// CloudFormation does not return a key's value, so one DescribeKey call
+// reads it into the outputs; a key with these restrictions is meant to be
+// public.
+// On a deployed branch the referer must be that branch's real address:
+// with APP_URL unset the key only serves localhost and every shared map
+// opens on a blank basemap. Said loudly at synth rather than failed, since
+// APP_URL is a Hosting environment variable the deploy cannot create.
+const mapBranch = process.env.AWS_BRANCH;
+if (mapBranch && !process.env.APP_URL) {
+  console.warn(
+    `APP_URL is not set on branch "${mapBranch}": the public map key will only serve http://localhost:3000/share/*. Set APP_URL in the Amplify console.`
+  );
+}
+const publicMapKey = new location.CfnAPIKey(locationStack, 'PublicMapKey', {
+  keyName: `public-map-${backend.stack.stackName.replace(/[^a-zA-Z0-9._-]/g, '-').slice(-48)}`,
+  description: 'Street map tiles for pages opened with no account (/share/).',
+  noExpiry: true,
+  // The service refuses to change the restrictions of a key used in the
+  // last seven days unless told to; every shared link uses this one.
+  forceUpdate: true,
+  restrictions: {
+    allowActions: ['geo-maps:GetTile'],
+    allowResources: [mapsProviderArn(locationStack)],
+    allowReferers: [`${(process.env.APP_URL ?? 'http://localhost:3000').replace(/\/+$/, '')}/share/*`],
+  },
+});
+const describePublicMapKey = {
+  service: 'Location',
+  action: 'describeKey',
+  parameters: { KeyName: publicMapKey.keyName },
+  physicalResourceId: cr.PhysicalResourceId.of(publicMapKey.keyName),
+};
+const publicMapKeyValue = new cr.AwsCustomResource(locationStack, 'PublicMapKeyValue', {
+  onCreate: describePublicMapKey,
+  onUpdate: describePublicMapKey,
+  policy: cr.AwsCustomResourcePolicy.fromStatements([
+    new iam.PolicyStatement({ actions: ['geo:DescribeKey'], resources: [publicMapKey.attrKeyArn] }),
+  ]),
+});
+publicMapKeyValue.node.addDependency(publicMapKey);
+
+backend.addOutput({ custom: { map: { region: mapServices.region, publicMapKey: publicMapKeyValue.getResponseField('Key') } } });
+
+// ═══════════════════════════════════════════════════════════════════
+// #4e AWS WAF on the foundation GraphQL API (amplify/custom/public-read-guard)
+// The API key is in every page, and the operations it authorizes (a map
+// shared by link, a public form) are the one public surface of the API.
+// The web ACL rate-limits requests that carry the key per address and
+// counts what the managed common rules would block; a signed-in request
+// carries no key and is never limited. Own stack: it names the API's ARN,
+// so it depends on the data stack one way.
+// ═══════════════════════════════════════════════════════════════════
+
+createPublicReadGuard(backend.createStack('public-read-guard'), {
+  apiArn: backend.data.resources.graphqlApi.arn,
+  uniqueName: backend.stack.stackName,
+});
 
 // ═══════════════════════════════════════════════════════════════════
 // #5 Stripe Function URL
