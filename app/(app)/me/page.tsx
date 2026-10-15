@@ -32,7 +32,7 @@ function Chips<T extends string>({
           onClick={() => onPick(o.id)}
           aria-pressed={value === o.id}
           className={cn(
-            "min-h-12 rounded-full border px-5 text-[17px] font-medium transition-colors",
+            "min-h-12 rounded-full border px-5 text-field font-medium transition-colors",
             value === o.id ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background text-foreground hover:bg-muted"
           )}
         >
@@ -110,21 +110,21 @@ export default function MePage() {
       </Card>
 
       <Card title={shellLabels.flagIt}>
-        <FlagIt className="min-h-12 text-[17px]" />
+        <FlagIt className="min-h-12 text-field" />
         <p className="mt-3 text-sm text-muted-foreground">Report a problem from any screen. Where you were is filled in for you.</p>
       </Card>
 
       <Card title={shellLabels.account}>
         <div className="flex flex-wrap gap-2">
-          <Link href="/settings" className="inline-flex min-h-12 items-center rounded-lg border border-border px-5 text-[17px] font-medium hover:bg-muted">
+          <Link href="/settings" className="inline-flex min-h-12 items-center rounded-lg border border-border px-5 text-field font-medium hover:bg-muted">
             {shellLabels.organization}
           </Link>
           {manager && (
-            <Link href="/settings/billing" className="inline-flex min-h-12 items-center rounded-lg border border-border px-5 text-[17px] font-medium hover:bg-muted">
+            <Link href="/settings/billing" className="inline-flex min-h-12 items-center rounded-lg border border-border px-5 text-field font-medium hover:bg-muted">
               {shellLabels.billing}
             </Link>
           )}
-          <button type="button" onClick={() => handleSignOut()} className="inline-flex min-h-12 items-center rounded-lg bg-primary px-5 text-[17px] font-semibold text-primary-foreground hover:bg-primary/90">
+          <button type="button" onClick={() => handleSignOut()} className="inline-flex min-h-12 items-center rounded-lg bg-primary px-5 text-field font-semibold text-primary-foreground hover:bg-primary/90">
             {shellLabels.signOut}
           </button>
         </div>

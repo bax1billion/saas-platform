@@ -5,7 +5,7 @@ export function PlacePage({ title, lead, children }: { title: string; lead?: str
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 md:px-6">
       <h1 className="font-serif text-2xl font-bold text-foreground">{title}</h1>
-      {lead && <p className="mt-1 text-[17px] text-muted-foreground">{lead}</p>}
+      {lead && <p className="mt-1 text-field text-muted-foreground">{lead}</p>}
       <div className="mt-6 space-y-6">{children}</div>
     </div>
   );
@@ -18,7 +18,7 @@ export function PlacePage({ title, lead, children }: { title: string; lead?: str
  */
 export function HonestEmpty({ children, ticket }: { children: ReactNode; ticket?: string }) {
   return (
-    <div className="rounded-xl border border-dashed border-border bg-background p-6 text-[17px] leading-relaxed text-muted-foreground">
+    <div className="rounded-xl border border-dashed border-border bg-background p-6 text-field leading-relaxed text-muted-foreground">
       <p>{children}</p>
       {ticket && <p className="mt-2 text-sm">Ticket {ticket}.</p>}
     </div>

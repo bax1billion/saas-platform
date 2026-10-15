@@ -12,6 +12,22 @@
  * implementation detail of config/theme.css.
  */
 
+/*
+ * The Field door's floors as tokens (docs/shell.md, Text size; the
+ * three-doors rule): body text never under 17 px, a tap target 48 px,
+ * the one primary action 54 px. Written in rem so they grow with the
+ * member's text size the way the rest of the canvas does, and kept in one
+ * place so every product's Field screen reads the same rule:
+ * `text-field`, `min-h-target` / `min-w-target`, `min-h-primary`.
+ * The bar heights the scroll spy measures stay in pixels on purpose.
+ */
+@theme {
+  --text-field: 1.0625rem;
+  --text-field--line-height: 1.375;
+  --spacing-target: 3rem;
+  --spacing-primary: 3.375rem;
+}
+
 @theme inline {
   /* Typography */
   --font-sans: var(--font-body);

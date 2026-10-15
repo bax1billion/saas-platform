@@ -132,7 +132,7 @@ export default function SectionRail({ variant }: { variant: RailVariant }) {
           }}
           onKeyDown={(e) => onKey(e, i)}
           aria-current={on ? "page" : undefined}
-          className={cn(ITEM, !vertical && CHIP, field && "min-h-12 text-[17px]", on && "font-semibold text-foreground")}
+          className={cn(ITEM, !vertical && CHIP, field && "min-h-target text-field", on && "font-semibold text-foreground")}
         >
           {marker(on)}
           <span className="truncate">{item.label}</span>
@@ -154,7 +154,7 @@ export default function SectionRail({ variant }: { variant: RailVariant }) {
         aria-selected={tabs ? on : undefined}
         tabIndex={tabs ? (on ? 0 : -1) : undefined}
         aria-current={!tabs && on ? (spec.mode === "stages" ? "step" : "location") : undefined}
-        className={cn(ITEM, !vertical && CHIP, field && "min-h-12 text-[17px]", on && "font-semibold text-foreground", item.disabled && "opacity-50")}
+        className={cn(ITEM, !vertical && CHIP, field && "min-h-target text-field", on && "font-semibold text-foreground", item.disabled && "opacity-50")}
       >
         {marker(on)}
         {stage && (
