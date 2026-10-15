@@ -35,10 +35,11 @@ upstream contribution: *would the next unrelated vertical use this unchanged?*
 | `amplify/data/domains/` | the data domains (`docs/data-domains.md`): `assignments.ts` names them and which module sits on which (downstream-owned, empty here), `registry.ts` composes each one's schema, `index.ts` builds and wires every composed domain in one loop |
 | `amplify/data/{entitlements,record-access}/` | APPSYNC_JS pipeline steps (`.js`) + their tests |
 | `amplify/functions/<name>/` | Lambdas (`resource.ts` + `handler.ts`); some have their own `package.json` |
-| `amplify/custom/<name>/` | Raw CDK constructs for what `defineFunction` cannot package (the media CDN's sharp transform, the export renderer's react-pdf): a `NodejsFunction` with an install hook, wired by hand in `backend.ts` |
+| `amplify/custom/<name>/` | Raw CDK constructs for what `defineFunction` cannot package (the media CDN's sharp transform, the export renderer's react-pdf): a `NodejsFunction` with an install hook, wired by hand in `backend.ts`; also the map services' IAM (`location/`) and the WAF on the API's public read (`public-read-guard/`) |
 | `amplify/data/assist-helpers.ts` | Product seam for Assist: one helper per job (`amplify/shared/assist/types.ts`), run by `assistRun`; `docs/spine-services-design.md` § 2 |
 | `amplify/data/export-providers.ts` | Product seam for the export service: one provider per record type builds the document model (`lib/export/model.ts`); `docs/spine-services-design.md` § 3 |
 | `lib/` | shared utils (`cn()`, `getDataClient()` and `getModuleClient()`, module entitlement logic, `roles.ts`, `time/` zone-aware clock and ISO-date math used by client and Lambdas, `export/`, `assist/`, `shell/` and `hooks/` for the app frame) |
+| `lib/map/` | the map engine (`docs/map-engine.md`): one `MapView` on MapLibre with a state model, basemap providers (Amazon Location, an invented grid, PMTiles), the layer contract and registry, symbol sprites, drawing and measure (Terra Draw), address search, the printed copy. Holds no product facts: a product publishes layers from `lib/services/<id>/layers.ts` and renders `MapView` |
 | `lib/offline/` | the device outbox (`docs/offline.md`): writes saved on the device and sent in order when there is signal; `OutboxProvider` in `app/(app)/layout.tsx`, one sender per module in `config/offline.ts` |
 | `scripts/` | check scripts (`check-backend`, `check-cfn-cycles`, `check-resolvers`), `sandbox` (staged deploys), `generate-domains` |
 | `docs/` | design docs and playbooks |
@@ -48,7 +49,7 @@ Path alias `@/*` maps to the repo root, **except inside `amplify/`** (see Gotcha
 ## Commands
 
 ```bash
-npm ci                         # install
+npm ci                         # install (postinstall copies MapLibre's worker files into public/)
 npm run dev                    # Next dev server; needs amplify_outputs.json (see Gotchas)
 npm test                       # vitest run, all colocated *.test.ts
 npx vitest run path/to/file.test.ts      # single file;  add -t "name" for one test
@@ -113,6 +114,13 @@ For local checks without a sandbox: `test -f amplify_outputs.json || echo '{}' >
   never `a.ref`s / relates to another module's models (`lib/schema-boundaries.test.ts`); a module
   reads another's data only through its published contract and must work when that module is not
   licensed. Cross-module effects travel as events into the owner's stream handler.
+- **Maps** (`docs/map-engine.md`): the engine in `lib/map/` is foundation code and the only map; a
+  product renders `MapView` with layers it publishes from `lib/services/<id>/layers.ts` (a bounded read,
+  a style, a classification) and sprites from its own catalog, keeps its records in its own tables and
+  never wires MapLibre itself. The map services' grants are on every org group's role
+  (`amplify/custom/location/`); the API's public read sits behind the WAF guard
+  (`amplify/custom/public-read-guard/`). Nothing under `lib/map/` imports `modules/`, `config/` or
+  `lib/services/` (`lib/map/engine-boundary.test.ts`).
 - **Shared services** (`docs/spine-services-design.md`): Assist (Bedrock, dark until `ASSIST_MODE`
   is set) and document export (react-pdf renderer on the `ExportJob` stream). Products plug in
   through the two seams; nothing product-side builds its own.
@@ -238,6 +246,10 @@ For local checks without a sandbox: `test -f amplify_outputs.json || echo '{}' >
   `amplify/backend.ts` #9 synthesizes every stack without indentation (about a fifth smaller);
   `check:backend` fails on an indented or oversized template and warns past 85%. Past that, the
   lever is a data domain per product group (`docs/data-domains.md`), not a smaller module.
+- WAFv2 validates a web ACL's `description` only at deploy time: word characters, `+=:#@/-,.`
+  and inner spaces, nothing else ("failed to satisfy constraint: Member must satisfy regular
+  expression pattern"). The guard's description lives in `amplify/custom/public-read-guard/rules.ts`
+  with a test against the pattern.
 - CloudFormation also caps one stack operation at 2,500 resources across the root and every nested
   stack it touches ("Limit on the number of resources in a single stack operation exceeded"; not
   adjustable). A backend of 130 models synthesizes to about 6,800 resources, so a from-scratch

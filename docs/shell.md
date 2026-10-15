@@ -181,6 +181,12 @@ product's places beyond Home and Me, theme (the dark palette has no QA
 pass; `ThemeProvider` is light only), `MemberPreference`. None of these is
 faked: a control that is not built is hidden or names its ticket.
 
+The save chip, when it comes, also carries the map's source: a screen
+whose map draws from a pack on the device (`MapState.source` is `pack`,
+exposed as `data-map-source` on `MapView`, `lib/map/MapView.tsx`) shows
+"Map from the pack" beside the sync state, so a person knows the streets
+are the stored copy (`docs/map-engine.md` § 5).
+
 ## 8. Checks
 
 `npm test`, `npx tsc --noEmit`, `npx eslint . --max-warnings=0`,
