@@ -1,0 +1,202 @@
+# The pull request gates (docs/pull-request-gates.md): the repo's conventions
+# as a check, the Tier 1 hold, the secret scan and the dependency audit.
+#
+# `conventions` and `tier-1 review` run scripts/pr-gates/check.mjs, which
+# needs node and gh and nothing from node_modules, so neither installs.
+# `tier-1 review` also runs when a review is submitted or dismissed, so a
+# lead's approval turns the check green without a new push.
+name: PR gates
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, edited, labeled, unlabeled]
+  pull_request_review:
+    types: [submitted, dismissed]
+  push:
+    branches: [main]
+
+# One run per PR per kind of event. The review's summary arrives as a
+# `pull_request_review` event two to five minutes after a push, while the
+# push's own run is still going; with one group per PR it cancelled that
+# run, the head kept cancelled `conventions` and `secret-scan` check runs,
+# and PRs sat blocked with every other check green (fourteen PRs in one
+# afternoon, Oct 2026). A review event now cancels only an older review event's run.
+concurrency:
+  group: gates-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  conventions:
+    name: conventions
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Base, commits, forbidden files, toasts, hex, changelog, tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: node scripts/pr-gates/check.mjs --mode conventions
+
+  tier-1:
+    name: tier-1 review
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Classify (CODEOWNERS paths, edited tests, the AI review's label)
+        id: tier
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: node scripts/pr-gates/check.mjs --mode tier
+
+      - name: Label and explain
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          NEEDS_LEAD: ${{ steps.tier.outputs.needs_lead }}
+          COMMENT_FILE: ${{ steps.tier.outputs.comment_file }}
+        run: |
+          set -euo pipefail
+          if [ "$NEEDS_LEAD" = "true" ]; then
+            gh label create tier-1 --color B60205 --description "A lead reviewer signs off before this merges" 2>/dev/null || true
+            gh pr edit "$PR" --add-label tier-1
+          else
+            gh pr edit "$PR" --remove-label tier-1 2>/dev/null || true
+          fi
+          # One sticky comment, found by its marker, edited in place.
+          existing=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate --jq '.[] | select(.body | startswith("<!-- pr-gates-tier1 -->")) | .id' | head -n1)
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" -F body=@"$COMMENT_FILE" > /dev/null
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@"$COMMENT_FILE" > /dev/null
+          fi
+
+      - name: Hold until a lead approves
+        if: steps.tier.outcome == 'failure'
+        run: |
+          echo "::error::This PR is Tier 1 and waits for a lead reviewer's approval (see the PR comment)."
+          exit 1
+
+  secret-scan:
+    name: secret-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Pinned by version and by the sha256 of the release file. Bumping either is a change to a test: Tier 1.
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks (checksum verified)
+        run: |
+          set -euo pipefail
+          curl -sSL --retry 3 -o gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/gitleaks" && tar -xzf gitleaks.tgz -C "$RUNNER_TEMP/gitleaks" gitleaks
+          rm gitleaks.tgz
+          "$RUNNER_TEMP/gitleaks/gitleaks" version
+
+      - name: Prove the scanner sees a secret (a token shaped at run time, never committed, never printed)
+        run: |
+          set -euo pipefail
+          probe="$RUNNER_TEMP/probe"; mkdir -p "$probe"
+          # A GitHub token shape with random, high-entropy content.
+          printf 'token = "ghp_%s"\n' "$(openssl rand -base64 64 | tr -dc 'A-Za-z0-9' | head -c 36)" > "$probe/config.txt"
+          if "$RUNNER_TEMP/gitleaks/gitleaks" dir "$probe" --config .gitleaks.toml --redact --no-banner --exit-code 9 > /dev/null 2>&1; then
+            echo "::error::gitleaks found nothing in the probe; the scan would pass a real secret"; rm -rf "$probe"; exit 1
+          else
+            code=$?; rm -rf "$probe"
+            if [ "$code" -ne 9 ]; then echo "::error::gitleaks probe exited $code"; exit 1; fi
+            echo "probe detected"
+          fi
+
+      - name: Scan the commits this change adds
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            range="$HEAD"
+          else
+            range="$BASE..$HEAD"
+          fi
+          echo "scanning $range"
+          "$RUNNER_TEMP/gitleaks/gitleaks" git . --log-opts="$range" --config .gitleaks.toml --redact --no-banner --report-format sarif --report-path gitleaks.sarif --exit-code 1
+
+      - name: Keep the report (counts and locations only; values are redacted)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gitleaks-report
+          path: gitleaks.sarif
+          retention-days: 7
+
+  audit:
+    name: dependency audit
+    # Runs on review events too: a skipped job reports as passing for the
+    # same commit and would stand in for an earlier failure.
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # Production dependencies only. Blocks on a critical advisory; high
+      # and below are reported in the job summary and left to Dependabot's
+      # weekly PR, so a transitive advisory with no fix does not stop every
+      # PR. Raising the bar to `high` is a one-word change here, once the
+      # open advisories are cleared.
+      - name: npm audit (production dependencies)
+        run: |
+          set -o pipefail
+          npm audit --omit=dev --json > audit.json || true
+          node -e '
+            const a = require("./audit.json");
+            if (a.error || !a.metadata?.vulnerabilities) { console.error("npm audit did not answer:", JSON.stringify(a.error ?? a).slice(0, 300)); process.exit(1); }
+            const v = a.metadata.vulnerabilities;
+            const rows = Object.entries(a.vulnerabilities ?? {}).filter(([, x]) => ["high","critical"].includes(x.severity))
+              .map(([n, x]) => `| ${x.severity} | ${n} | ${x.fixAvailable ? (x.fixAvailable === true ? "npm audit fix" : `${x.fixAvailable.name}@${x.fixAvailable.version}`) : "none"} |`);
+            require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### npm audit (production)\n\ncritical ${v.critical ?? 0}, high ${v.high ?? 0}, moderate ${v.moderate ?? 0}, low ${v.low ?? 0}\n\n` + (rows.length ? "| Severity | Package | Fix |\n|---|---|---|\n" + rows.join("\n") + "\n" : ""));
+            if ((v.critical ?? 0) > 0) { console.error(`${v.critical} critical advisory(ies) in production dependencies`); process.exit(1); }
+          '

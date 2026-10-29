@@ -1,0 +1,54 @@
+# Dependency updates (docs/pull-request-gates.md § 5): one grouped PR per
+# family each week instead of one PR per package, so the lead approves a
+# handful of PRs a week. Security updates still arrive on their own as
+# soon as GitHub publishes the advisory. Majors of the frameworks the
+# whole app sits on are left to a person on purpose.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Los_Angeles
+    open-pull-requests-limit: 6
+    commit-message:
+      prefix: "chore(deps)"
+    labels: [dependencies]
+    groups:
+      aws:
+        patterns: ["@aws-sdk/*", "@aws-amplify/*", "aws-amplify", "@aws/*", "@aws-crypto/*"]
+      next-react:
+        patterns: ["next", "@next/*", "react", "react-dom", "@types/react", "@types/react-dom", "eslint-config-next"]
+        update-types: [minor, patch]
+      tooling:
+        patterns: ["vitest", "@vitest/*", "eslint", "eslint-*", "typescript", "tsx", "@types/*", "tailwindcss", "@tailwindcss/*", "postcss"]
+      everything-else:
+        patterns: ["*"]
+        exclude-patterns: ["next", "react", "react-dom"]
+    ignore:
+      - dependency-name: next
+        update-types: ["version-update:semver-major"]
+      - dependency-name: react
+        update-types: ["version-update:semver-major"]
+      - dependency-name: react-dom
+        update-types: ["version-update:semver-major"]
+      - dependency-name: aws-amplify
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@aws-amplify/backend"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Los_Angeles
+    commit-message:
+      prefix: "chore(actions)"
+    labels: [dependencies]
+    groups:
+      actions:
+        patterns: ["*"]

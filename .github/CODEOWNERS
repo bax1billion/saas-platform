@@ -1,0 +1,121 @@
+# Who must approve a change before it merges (docs/pull-request-gates.md).
+#
+# The rule: product work merges on its own when every check is green and
+# the AI review has no blocking finding. The foundation needs a person:
+# sign-in, sessions, permissions, the foundation schema and the backend
+# wiring, the app frame, the entitlement decision, the shared services, the
+# build and the gates, legal text and the rulebooks. The repository's lead
+# approves those. A path with no owner here is product work.
+#
+# GitHub applies the LAST matching line, and a line with no owner removes
+# the owner an earlier line gave: that is how a product releases its own
+# paths under an owned directory (see the amplify/ block). The
+# `tier-1 review` check reads this file the same way, from the base
+# branch as GitHub does, so the check and the PR comment name the same
+# files GitHub holds for review and a PR cannot release itself. Keep
+# patterns gitignore-shaped: a leading `/` anchors to the repo root, a
+# trailing `/` means a directory, `*` never crosses a `/`.
+#
+# A product mirror keeps this file and adds to it: one line per module to
+# release its schema file and its Lambdas (`/amplify/data/modules/<id>.ts`
+# is released by the directory line below; `/amplify/functions/<id>-*/`
+# with no owner releases the Lambdas), and an owner line for a module
+# whose data is regulated (so its whole tree needs a person).
+
+# The build, the gates and this file.
+/.github/                              @bax1billion
+/.gitleaks.toml                        @bax1billion
+
+# The rules of the repo and its build mechanics. A dependency is Tier 1.
+/CLAUDE.md                             @bax1billion
+/CONTRIBUTING.md                       @bax1billion
+/CDK_WIRING_DEPLOY.md                  @bax1billion
+/README.md                             @bax1billion
+/package.json                          @bax1billion
+/package-lock.json                     @bax1billion
+/tsconfig.json                         @bax1billion
+/next.config.ts                        @bax1billion
+/eslint.config.mjs                     @bax1billion
+/vitest.config.ts                      @bax1billion
+/postcss.config.mjs                    @bax1billion
+/components.json                       @bax1billion
+/.npmrc                                @bax1billion
+/.nvmrc                                @bax1billion
+/.gitattributes                        @bax1billion
+/.gitignore                            @bax1billion
+/.env.sandbox.example                  @bax1billion
+
+# The backend: the foundation schema, auth, entitlements, record access,
+# the data domains, the shared services (Assist, export, media, notify),
+# the foundation Lambdas and the CDK wiring. Everything under amplify/ is
+# held unless a line below releases it. A module's own schema file is
+# module work: its tables, on its own data domain, behind the entitlement
+# gate the foundation applies to every module table. The gates still hold
+# one that adds a public, guest or authenticated rule (scripts/pr-gates),
+# and the AI review holds one whose content is Tier 1.
+/amplify/                              @bax1billion
+/amplify/data/modules/
+
+# The app frame: providers, the sign-in gate, the shell, onboarding,
+# billing. The theme (`app/globals.css`) is not held: its Field floor
+# values are pinned by `lib/field-floor.test.ts`, which is.
+/app/layout.tsx                        @bax1billion
+/app/components/                       @bax1billion
+/app/(app)/layout.tsx                  @bax1billion
+/app/(app)/dashboard/                  @bax1billion
+/app/(app)/settings/                   @bax1billion
+/app/onboarding/                       @bax1billion
+/app/subscribe/                        @bax1billion
+
+# Shared code: only the foundation parts are held. The entitlement
+# decision, auth policy, the data client, Assist, the export service, the
+# device outbox, the media CDN, the shell helpers, the schema boundary and
+# Field floor tests. A module's published contract (`lib/services/<id>/`),
+# the map engine and the other helpers are product work, read by the AI
+# review.
+/lib/modules/                          @bax1billion
+/lib/auth-policy/                      @bax1billion
+/lib/assist/                           @bax1billion
+/lib/export/                           @bax1billion
+/lib/offline/                          @bax1billion
+/lib/shell/                            @bax1billion
+/lib/data-client.ts                    @bax1billion
+/lib/roles.ts                          @bax1billion
+/lib/media-cdn.ts                      @bax1billion
+/lib/media-cdn.test.ts                 @bax1billion
+/lib/schema-boundaries.ts              @bax1billion
+/lib/schema-boundaries.test.ts         @bax1billion
+/lib/field-floor.test.ts               @bax1billion
+
+# The product switchboard: the registry (what is gated), prices, roles and
+# the domain map. Theme tokens and copy are not held.
+/config/modules.ts                     @bax1billion
+/config/pricing.ts                     @bax1billion
+/config/site.ts                        @bax1billion
+/config/data-domains.ts                @bax1billion
+
+# Check scripts and generators are tests.
+/scripts/                              @bax1billion
+
+# The convention and platform docs: the rulebooks and the specs a coding
+# agent builds from. A spec changes with review. A module's own spec and
+# changelog (docs/<id>-module.md, docs/<id>-changelog.md) stay with the
+# module.
+/docs/adding-a-module.md               @bax1billion
+/docs/architecture.md                  @bax1billion
+/docs/bootstrap.md                     @bax1billion
+/docs/core-data-model.md               @bax1billion
+/docs/data-coupling.md                 @bax1billion
+/docs/data-domains.md                  @bax1billion
+/docs/modules.md                       @bax1billion
+/docs/offline.md                       @bax1billion
+/docs/onboarding-and-permissions.md    @bax1billion
+/docs/operator-grants.md               @bax1billion
+/docs/pull-request-gates.md            @bax1billion
+/docs/record-access.md                 @bax1billion
+/docs/shell.md                         @bax1billion
+/docs/sign-in-and-mfa.md               @bax1billion
+/docs/spine-services-design.md         @bax1billion
+/docs/submit-then-verify.md            @bax1billion
+/docs/subscriptions-and-payments.md    @bax1billion
+/docs/playbooks/reviewing-a-pr.md      @bax1billion

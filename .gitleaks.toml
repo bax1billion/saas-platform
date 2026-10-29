@@ -1,0 +1,11 @@
+# gitleaks configuration for the `secret-scan` check (.github/workflows/pr-gates.yml;
+# docs/pull-request-gates.md).
+#
+# Built-in rules on, no allowlist to start. Never allowlist a path: a
+# finding is fixed by removing the value and rotating it, not by hiding the
+# file. A false positive on one line is answered with an inline
+# `gitleaks:allow` comment on that line, visible to every reviewer.
+title = "Secret scan"
+
+[extend]
+useDefault = true

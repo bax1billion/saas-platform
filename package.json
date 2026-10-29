@@ -14,7 +14,9 @@
     "sandbox": "node scripts/sandbox.mjs",
     "postinstall": "node scripts/copy-maplibre-worker.mjs",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "check:pr": "node scripts/pr-gates/check.mjs",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1146.0",
@@ -68,6 +70,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/three": "^0.183.1",
+    "@vitest/coverage-v8": "^5.0.0",
     "aws-cdk-lib": "^2.234.1",
     "constructs": "^10.4.5",
     "esbuild": "^0.27.3",
