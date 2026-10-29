@@ -235,7 +235,11 @@ bumps; a major is left for a person. The switch is flipped with the
 automation App's token (§ 7) because a merge made on behalf of the workflow's
 default token does not start the push-triggered workflows on the base
 branch; until the App exists it uses the default token and says so in the
-log. GitHub does not re-evaluate auto-merge after a ruleset change or a
+log. The switch arms nothing while the base branch has no ruleset requiring
+status checks: without one, `gh pr merge --auto` merges at once, and two
+dependency bumps landed on an unprotected default branch that way, one with
+a failing install, minutes after the workflow arrived. Apply the ruleset
+(§ 7 step 4) before anything else. GitHub does not re-evaluate auto-merge after a ruleset change or a
 rerun of a check by itself; switching auto-merge off and on
 (`gh pr merge <n> --disable-auto; gh pr merge <n> --auto --merge`) makes it
 look again.
@@ -368,9 +372,12 @@ organization owner or a repository admin.
    Claude makes to a PR waits for a lead to approve its runs.
 3. **Repository settings, General, Pull Requests:** allow auto-merge (on);
    automatically delete head branches (on); merge commits allowed.
-4. **Rulesets.** Apply `.github/rulesets/main.json` (§ 5). Do it after the
-   first PR has run the new checks once, so each check name exists; a
-   required check that has never reported blocks everything. Verify on a
+4. **Rulesets.** Apply `.github/rulesets/main.json` (§ 5) as the first
+   setting after the workflows land: until it exists nothing requires a
+   check, so auto-merge would merge at once (the workflow refuses to arm
+   until then) and Dependabot's first PRs arrive within minutes of its
+   config. The check names can be required before they have ever reported;
+   each PR's run creates them. Verify on a
    test PR that touches `lib/modules/` that GitHub asks for the code owner
    and that a PR touching only a module's directory does not.
 5. **Roles.** The lead is admin; other accounts that open PRs are `write`.
