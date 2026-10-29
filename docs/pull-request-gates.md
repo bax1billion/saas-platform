@@ -186,11 +186,17 @@ Getting a fix made, three ways, from least to most automatic:
    the PR branch. The push has to start the checks again, and a push made
    with the workflow's own token does not: GitHub creates the runs and holds
    every one for a person's approval. Both fix paths therefore push with the
-   automation App's token (§ 7 step 6), and their checkout step sets
-   `persist-credentials: false`: without it the checkout leaves
-   `GITHUB_TOKEN` in the git config as an Authorization header, which wins
-   over the token the action puts in the remote URL, and the push still
-   arrives as `github-actions[bot]`. If a run is ever held, approve it with
+   automation App's token (§ 7 step 6), and their checkout step is made
+   **with that token** (`token:` on `actions/checkout`, the App token
+   step before it). The credential the checkout persists is then the App's,
+   so the action's first `git fetch` of the PR head works and the push
+   arrives as the App. Two other shapes both fail: with `GITHUB_TOKEN`
+   persisted (the default) it sits in the git config as an Authorization
+   header that wins over the token the action puts in the remote URL, and
+   the push arrives as `github-actions[bot]`; with
+   `persist-credentials: false` nothing is persisted and every fix run
+   dies at the fetch ("could not read Username for 'https://github.com'").
+   If a run is ever held, approve it with
    `gh api -X POST repos/<owner>/<repo>/actions/runs/<id>/approve`.
 3. The PR carries the `auto-fix` label (added before or after the review):
    when the review holds it, the `claude-fix` job runs
@@ -449,8 +455,11 @@ listed so the next person recognises it.
   on that run.
 - **Claude's push started runs that sit "action required".** The push went
   out as `github-actions[bot]`: the App token is missing, or the checkout
-  persisted its credentials (§ 4). Approve the held runs by their id and fix
-  the cause.
+  was made without it (§ 4). Approve the held runs by their id and fix the
+  cause.
+- **Every fix run dies at `git fetch` with "could not read Username".** The
+  checkout persisted no credential (`persist-credentials: false`); check
+  out with the App token instead (§ 4).
 - **The AI review did not run on a PR that changes `claude-review.yml`.**
   The Claude Code Action only runs a workflow identical to the default
   branch's; the Verdict step says so and passes. That PR is CODEOWNERS-held,

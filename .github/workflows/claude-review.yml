@@ -202,16 +202,25 @@ jobs:
       issues: write
       id-token: write
     steps:
+      - name: App token
+        id: app
+        if: vars.AUTOMATION_APP_ID != ''
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-          # The checkout would otherwise leave GITHUB_TOKEN in the git config
-          # as an Authorization header, which wins over the App token the
-          # action puts in the remote URL, so the
-          # fix pushes arrived as github-actions[bot] and the review of each
-          # fix was held for approval.
-          persist-credentials: false
+          # Checked out with the App's token, so the credential the checkout
+          # persists is the App's: the action's first `git fetch` of the PR
+          # head needs one (with none persisted it died on "could not read
+          # Username", Oct 29, 2026), and a push with it arrives as the App,
+          # so the runs it starts are not held. With GITHUB_TOKEN persisted
+          # instead, the fix pushes arrived as github-actions[bot] and every run was held.
+          token: ${{ steps.app.outputs.token || github.token }}
 
       - name: Stop if the last push was Claude's
         # The action commits as a bot (github-actions[bot] by default, the
@@ -223,14 +232,6 @@ jobs:
             echo "The last commit is a bot's ($author); one fix per human push."
             echo "skip=true" >> "$GITHUB_ENV"
           fi
-
-      - name: App token
-        id: app
-        if: env.skip != 'true' && vars.AUTOMATION_APP_ID != ''
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ vars.AUTOMATION_APP_ID }}
-          private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
 
       - uses: actions/setup-node@v7
         if: env.skip != 'true'
