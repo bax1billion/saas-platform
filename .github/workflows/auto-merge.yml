@@ -1,0 +1,76 @@
+# Auto-merge (docs/pull-request-gates.md § 5): a pull request to the default branch
+# that is ready for review is set to merge on its own once every required
+# check is green and every required review is in. Draft means not ready; a
+# `hold` label means wait, and adding it later switches auto-merge off
+# again. GitHub does the merging; this only flips the switch, so the
+# rulesets stay the one place that says what "green" means.
+#
+# The switch is flipped with the automation App's token when the App exists
+# (§ 7): a merge made on behalf of the workflow's own token does not start
+# the push-triggered workflows on the default branch (CI, the secret scan, the
+# branch updater). Without the App it falls back to the default token and
+# says so.
+#
+# Dependabot's PRs are included: a patch or minor bump merges once CI and
+# the lead's approval (package.json is CODEOWNERS-held) are in; a major
+# bump is left for a person to decide. The PR's author, not the event's
+# actor, decides which rule applies.
+name: Auto-merge
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, labeled, unlabeled]
+
+permissions: {}
+
+jobs:
+  switch:
+    if: github.event.pull_request.draft == false && github.event.pull_request.base.ref == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      PR: ${{ github.event.pull_request.number }}
+      HOLD: ${{ contains(join(github.event.pull_request.labels.*.name, ','), 'hold') }}
+      IS_DEPENDABOT: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
+    steps:
+      - name: App token
+        id: app
+        if: vars.AUTOMATION_APP_ID != ''
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+
+      - name: "Dependabot: patch and minor only"
+        if: env.IS_DEPENDABOT == 'true'
+        id: dependabot
+        uses: dependabot/fetch-metadata@v3
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Hold
+        if: env.HOLD == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+        run: gh pr merge "$PR" --disable-auto --repo "$GITHUB_REPOSITORY" || echo "auto-merge was not on"
+
+      - name: Enable auto-merge
+        if: env.HOLD != 'true' && (env.IS_DEPENDABOT != 'true' || steps.dependabot.outputs.update-type != 'version-update:semver-major')
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+        run: |
+          if [ -z "${{ steps.app.outputs.token }}" ]; then
+            echo "::notice::AUTOMATION_APP_ID is not set; auto-merge is enabled with the default token, and the merge will not start the push-triggered workflows (docs/pull-request-gates.md § 7)."
+          fi
+          if ! out=$(gh pr merge "$PR" --auto --merge --repo "$GITHUB_REPOSITORY" 2>&1); then
+            case "$out" in
+              *"not allowed"*|*"not enabled"*|*"disabled"*)
+                echo "::notice::Auto-merge is switched off in the repository settings (General, Pull Requests, Allow auto-merge); nothing to do until it is on (docs/pull-request-gates.md § 7)." ;;
+              *"clean status"*|*"already"*)
+                echo "$out" ;;
+              *) echo "$out"; exit 1 ;;
+            esac
+          fi

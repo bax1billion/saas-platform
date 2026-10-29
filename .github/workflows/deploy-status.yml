@@ -1,0 +1,108 @@
+# Amplify Hosting's deploy result, on the commit in GitHub
+# (docs/pull-request-gates.md § 6). Amplify Hosting does not report a
+# branch build back to GitHub. An EventBridge rule in each hosting account
+# catches "Amplify Deployment Status Change" and a small Lambda
+# (scripts/deploy-status/handler.mjs) sends it here as a repository_dispatch
+# event. This workflow turns it into a GitHub Deployment with a status, a
+# commit status named `amplify/<branch>`, and, on a failure, an issue.
+#
+# Payload (client_payload): { appId, region, branch, jobId, status, commitId, consoleUrl }
+# where status is one of STARTED, SUCCEED, FAILED, CANCELLED.
+name: Deploy status
+
+on:
+  repository_dispatch:
+    types: [amplify-deploy]
+
+permissions: {}
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      deployments: write
+      statuses: write
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      P_BRANCH: ${{ github.event.client_payload.branch }}
+      P_STATUS: ${{ github.event.client_payload.status }}
+      P_COMMIT: ${{ github.event.client_payload.commitId }}
+      P_JOB: ${{ github.event.client_payload.jobId }}
+      P_URL: ${{ github.event.client_payload.consoleUrl }}
+    steps:
+      - name: Map the Amplify status
+        id: map
+        run: |
+          case "$P_STATUS" in
+            SUCCEED) echo "state=success" >> "$GITHUB_OUTPUT"; echo "commit_state=success" >> "$GITHUB_OUTPUT" ;;
+            FAILED|CANCELLED) echo "state=failure" >> "$GITHUB_OUTPUT"; echo "commit_state=failure" >> "$GITHUB_OUTPUT" ;;
+            *) echo "state=in_progress" >> "$GITHUB_OUTPUT"; echo "commit_state=pending" >> "$GITHUB_OUTPUT" ;;
+          esac
+          case "$P_BRANCH" in
+            main) echo "environment=production" >> "$GITHUB_OUTPUT" ;;
+            *) echo "environment=$P_BRANCH" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      # Events for one job can arrive out of order or twice; a job that has
+      # already finished is never moved back to pending.
+      - name: Already finished?
+        id: done
+        if: env.P_COMMIT != ''
+        run: |
+          last=$(gh api "repos/$GITHUB_REPOSITORY/commits/$P_COMMIT/statuses?per_page=50" --jq "[.[] | select(.context == \"amplify/$P_BRANCH\" and (.description | endswith(\"job $P_JOB: SUCCEED\") or endswith(\"job $P_JOB: FAILED\") or endswith(\"job $P_JOB: CANCELLED\")))] | length")
+          if [ "$last" != "0" ] && [ "${{ steps.map.outputs.state }}" = "in_progress" ]; then
+            echo "job $P_JOB already finished; ignoring a late $P_STATUS"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit status amplify/<branch>
+        if: env.P_COMMIT != '' && steps.done.outputs.skip != 'true'
+        run: |
+          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$P_COMMIT" \
+            -f state="${{ steps.map.outputs.commit_state }}" \
+            -f context="amplify/$P_BRANCH" \
+            -f description="Amplify Hosting job $P_JOB: $P_STATUS" \
+            -f target_url="$P_URL" --silent
+
+      - name: Deployment and its status
+        if: env.P_COMMIT != '' && steps.done.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          # One deployment per Amplify job: reuse it if this is a later status of the same job.
+          id=$(gh api "repos/$GITHUB_REPOSITORY/deployments?ref=$P_COMMIT&environment=${{ steps.map.outputs.environment }}&per_page=20" --jq ".[] | select(.payload.jobId == \"$P_JOB\") | .id" | head -n1)
+          if [ -z "$id" ]; then
+            id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/deployments" \
+              -f ref="$P_COMMIT" -f environment="${{ steps.map.outputs.environment }}" \
+              -F auto_merge=false -f description="Amplify Hosting job $P_JOB" \
+              -F 'required_contexts[]' -f "payload[jobId]=$P_JOB" --jq '.id')
+          fi
+          gh api -X POST "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" \
+            -f state="${{ steps.map.outputs.state }}" -f log_url="$P_URL" \
+            -f description="Amplify Hosting: $P_STATUS" -F auto_inactive=true --silent
+
+      - name: Open or update the failure issue
+        if: steps.map.outputs.state == 'failure'
+        run: |
+          set -euo pipefail
+          title="Deploy failed on $P_BRANCH"
+          body="Amplify Hosting job $P_JOB on \`$P_BRANCH\` ended $P_STATUS for commit $P_COMMIT. Build log: $P_URL
+
+          Fix forward on a \`fix/\` branch (CLAUDE.md "Branches"); a revert is a PR too. Close this when a later deploy of \`$P_BRANCH\` succeeds."
+          gh label create deploy-failed --repo "$GITHUB_REPOSITORY" --color B60205 --description "Amplify Hosting reported a failed deploy" 2>/dev/null || true
+          n=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --label deploy-failed --search "\"$title\" in:title" --json number --jq '.[0].number')
+          if [ -n "$n" ]; then
+            gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --label deploy-failed --body "$body"
+          fi
+
+      - name: Close the failure issue on success
+        if: steps.map.outputs.state == 'success'
+        run: |
+          n=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --label deploy-failed --search "\"Deploy failed on $P_BRANCH\" in:title" --json number --jq '.[0].number')
+          if [ -n "$n" ]; then
+            gh issue close "$n" --repo "$GITHUB_REPOSITORY" --comment "Amplify Hosting job $P_JOB on \`$P_BRANCH\` succeeded for $P_COMMIT. $P_URL"
+          fi

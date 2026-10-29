@@ -1,0 +1,57 @@
+# Bring queued pull requests current, on request (docs/pull-request-gates.md
+# § 5): every open PR to the default branch that has auto-merge on and is behind gets
+# the new default branch merged in. Run it by hand (Actions, "Run workflow", or
+# `gh workflow run update-branches.yml`) when a batch of PRs should be
+# retested against today's default branch before they land.
+#
+# It once ran on every push and hourly, while the ruleset required PRs
+# to be up to date. With thirty PRs open,
+# every merge put the other twenty-nine behind, each update reran CI and
+# the AI review on all of them (about 600 Actions minutes and $30 to $60 of
+# review per merge), and only one PR could land per round. The strict rule
+# is off again and the triggers with it; GitHub's merge queue would do this
+# properly but is not available on the Team plan for a private repository.
+#
+# Needs a GitHub App of our own (AUTOMATION_APP_ID variable and
+# AUTOMATION_APP_PRIVATE_KEY secret, § 7): a branch updated with the
+# workflow's own token does not trigger the checks, and the PR would wait
+# forever. Without the app the job explains and exits.
+name: Update queued branches
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: App token
+        id: app
+        if: vars.AUTOMATION_APP_ID != ''
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+
+      - name: Update every behind PR with auto-merge on
+        if: steps.app.outputs.token != ''
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          set -euo pipefail
+          gh pr list --repo "$GITHUB_REPOSITORY" --base "$(gh repo view "$GITHUB_REPOSITORY" --json defaultBranchRef --jq .defaultBranchRef.name)" --state open --limit 100 \
+            --json number,autoMergeRequest,mergeStateStatus,isDraft \
+            --jq '.[] | select(.isDraft == false and .autoMergeRequest != null and .mergeStateStatus == "BEHIND") | .number' |
+          while read -r n; do
+            echo "updating #$n"
+            gh api -X PUT "repos/$GITHUB_REPOSITORY/pulls/$n/update-branch" --silent || echo "::warning::#$n could not be updated (a conflict needs a person)"
+          done
+
+      - name: No app configured
+        if: steps.app.outputs.token == ''
+        run: echo "::notice::AUTOMATION_APP_ID is not set; queued PRs are not updated automatically (docs/pull-request-gates.md § 7)."
