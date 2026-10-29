@@ -61,13 +61,18 @@ npm run check:entitlements     # entitlement decision-table tests
 npm run check:resolvers -- --profile <aws-profile>  # validate APPSYNC_JS via AppSync (needs AWS creds)
 npm run sandbox -- --profile <aws-profile> --modules none --once   # a sandbox, in stages (docs/bootstrap.md)
 npm run generate:domains       # regenerate lib/data-domains/<domain>.introspection.json from the domain schemas
+npm run check:pr               # the PR gates on the current branch's PR (docs/pull-request-gates.md § 2; needs gh)
+npm run test:coverage          # the suite with the coverage floors CI holds (vitest.config.ts)
 npx next build                 # production build
 ```
 
 **CI** (`.github/workflows/ci.yml`, every PR and push to `main`): `npm ci`, stub
-`amplify_outputs.json` with `{}`, `npm test`, `npx tsc --noEmit`,
-`npx eslint . --max-warnings=0`, `npm run check:backend`. Lint runs on the **whole repo at zero
-warnings** and includes the module import boundaries (below), so a single new warning fails the PR.
+`amplify_outputs.json` with `{}`, `npm run test:coverage`, `npx tsc --noEmit`,
+`npx tsc --noEmit -p amplify/tsconfig.json`, `npx eslint . --max-warnings=0`, `npm run check:backend`,
+and `npx next build` in a second job. Lint runs on the **whole repo at zero warnings** and includes
+the module import boundaries (below), so a single new warning fails the PR. Beside CI, every PR runs
+the gates in `docs/pull-request-gates.md`: `conventions`, `tier-1 review`, `secret-scan`,
+`dependency audit` and the AI review `claude-review`; the ruleset makes all of them required.
 
 For local checks without a sandbox: `test -f amplify_outputs.json || echo '{}' > amplify_outputs.json`
 (it is gitignored; never commit it). Real runs need `npx ampx sandbox --profile <profile>`.
@@ -143,10 +148,31 @@ For local checks without a sandbox: `test -f amplify_outputs.json || echo '{}' >
   product's values in `config/shell.ts`. Browser storage lives in `lib/shell/preference-store.ts`
   only (a test fails any other file).
 - Product strings come from `config/`, not hardcoded in foundation files.
+- **No button that only shows a message.** A control changes real state, shows an honest empty
+  state, is hidden, or says what is missing inline; a toast is never the only outcome. A changed
+  screen adds no new `toast(` call or sonner import (the `conventions` check fails it); existing
+  ones are cleaned as their screens are touched.
+- Every module keeps `docs/<id>-module.md` with `## Provides` and `## Consumes` sections and,
+  once it is being built, a `docs/<id>-changelog.md` build-state record, updated in the same
+  change as the code (the `conventions` check fails module work without one).
 - Line endings are LF (`.gitattributes`).
 - **Commits:** `<area>: <imperative subject>`, e.g. `foundation: ...`, `docs: ...`, `fix: ...`.
   One concern per commit. Foundation code carries no product facts: no client names, domains,
   Stripe ids, AWS account ids, or org names in fixtures, tests or comments.
+- **Branches:** one change, one branch, branched from and merged to `main` by pull request. Pull
+  requests target `main`; a PR based on another feature branch is refused by the `conventions`
+  check. Branch and title shapes are a habit, not a gate.
+- **Tier 1 review** needs a person, never only an agent: sign-in, sessions, permissions, the
+  foundation schema, anything that sends outside the organization, production releases and
+  deletes, a removed or shared test. In GitHub that is `.github/CODEOWNERS` (the lead approves a
+  change to the foundation backend and its wiring, the app frame, the entitlement decision and the
+  other foundation code under `lib/`, the registry and prices in `config/`, `scripts/`, `.github/`,
+  a dependency, the rulebooks) plus the `tier-1 review` check, which also holds a PR that removes a
+  test or edits a shared one, a module schema that adds a public, guest or authenticated rule, a
+  module Lambda that reaches outside the organization, and anything the AI review classifies as
+  Tier 1 by what it does. Everything else is product work and merges on its own when the checks
+  are green (`docs/pull-request-gates.md`). A product mirror adds its own Tier 1 categories here
+  (regulated data, money, anything with legal weight) and the review reads them from this file.
 
 ## How Claude works here
 
@@ -159,11 +185,23 @@ For local checks without a sandbox: `test -f amplify_outputs.json || echo '{}' >
    could not run. Nothing that only synth has seen counts as working: AppSync-JS limits and
    IAM-vs-Cognito caller assumptions pass synth and fail at run time, so say plainly when code has
    not been exercised against a sandbox.
-5. Open a **draft** PR with a plain-language before/after summary and the checks you ran. Update
-   the relevant `docs/` file when you add a capability or change a convention.
+5. Open a **draft** PR with a plain-language before/after summary and the checks you ran (the
+   template asks for both). Update the relevant `docs/` file when you add a capability or change a
+   convention. Marking the PR ready for review turns on auto-merge: it merges by itself once every
+   check is green, the AI review has no blocking finding, every review thread is resolved and, for
+   a Tier 1 change, the lead has approved. The review opens a thread only for a blocking finding
+   and answers the other readers' threads (Copilot's, its own earlier ones); advisories are in its
+   summary. A thread a person opened is theirs to resolve. A red check says in its log what to
+   change; `npm run check:pr` runs the conventions locally. `@claude <instruction>` in a PR comment
+   asks Claude in CI to make a change and push it; the `auto-fix` label lets it fix the review's
+   blocking findings once per push. Never edit `.github/`, CODEOWNERS or a ruleset file to make a
+   check pass: those are the lead's.
 6. Never commit secrets, `.env*`, `amplify_outputs*`, `amplify/.sandbox-operators`, or real
    customer data. Secrets are set with `npx ampx sandbox secret set <NAME>`.
 7. Do not deploy, run `ampx sandbox`, or touch Stripe/AWS resources unless explicitly asked.
+8. Reviewing someone else's PR: follow `docs/playbooks/reviewing-a-pr.md` (worktree per PR, merge
+   `main` first, run what CI runs, three read passes, fix every violation in the PR, hand over as a
+   pure merge plus a review patch for the lead to commit).
 
 ## Gotchas
 
