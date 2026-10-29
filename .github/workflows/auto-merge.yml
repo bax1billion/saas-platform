@@ -61,7 +61,17 @@ jobs:
         if: env.HOLD != 'true' && (env.IS_DEPENDABOT != 'true' || steps.dependabot.outputs.update-type != 'version-update:semver-major')
         env:
           GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          BASE: ${{ github.event.pull_request.base.ref }}
         run: |
+          # Without a ruleset that requires checks, `gh pr merge --auto` merges
+          # at once: two dependency bumps landed on an unprotected default
+          # branch that way, one with a failing install. Arm nothing until the
+          # base branch has required status checks (docs/pull-request-gates.md § 7).
+          required=$(gh api "repos/$GITHUB_REPOSITORY/rules/branches/$BASE" --jq '[.[] | select(.type == "required_status_checks")] | length' 2>/dev/null || echo 0)
+          if [ "${required:-0}" = "0" ]; then
+            echo "::warning::$BASE has no ruleset requiring status checks; auto-merge is not armed, because it would merge at once. Apply .github/rulesets/main.json first (docs/pull-request-gates.md § 7 step 4)."
+            exit 0
+          fi
           if [ -z "${{ steps.app.outputs.token }}" ]; then
             echo "::notice::AUTOMATION_APP_ID is not set; auto-merge is enabled with the default token, and the merge will not start the push-triggered workflows (docs/pull-request-gates.md § 7)."
           fi
