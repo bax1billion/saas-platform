@@ -1,0 +1,273 @@
+# The AI review (docs/pull-request-gates.md § 4): Claude reads every pull
+# request that is ready for review the way docs/playbooks/reviewing-a-pr.md
+# says to, posts inline findings and a summary, and the check fails on a
+# blocking finding. A draft is not reviewed until it is marked ready;
+# `@claude review` in a comment asks for one at any time (claude.yml).
+#
+# The prompt is .github/claude/review-prompt.md and the result shape is
+# .github/claude/review-schema.json, both owned by CODEOWNERS: a change to
+# what the review enforces is a change to a test.
+#
+# The `fix` job runs only when the PR carries the `auto-fix` label and the
+# review held it, and never on a push Claude itself made, so a round is one
+# review, one fix, one review. Adding the `auto-fix` label to a held PR
+# starts a round too (the `labeled` event; any other label is ignored).
+#
+# Claude's own push is a `synchronize` by `claude[bot]`, which the action
+# would refuse without `allowed_bots`; it is allowed so the fix gets its
+# review. The concurrency group carries the event and label so a label the
+# gates add mid-review cannot cancel the review.
+#
+# Copilot's automatic review (the "Copilot review for default branch"
+# ruleset) is requested when a PR opens, drafts included, and usually lands
+# within a few minutes. The review reads every unresolved
+# thread and answers or adopts it, so it waits while Copilot has been asked
+# on the PR's timeline and has not answered, up to ten minutes, and then
+# reviews with what is there.
+#
+# Needs the ANTHROPIC_API_KEY repository secret and the Claude GitHub App
+# (installed). Without the secret the check is skipped and says why.
+name: Claude review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}-${{ github.event.action == 'labeled' && github.event.label.name || 'push' }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  review:
+    name: claude-review
+    if: |
+      github.event.pull_request.draft == false
+      && github.event.pull_request.user.login != 'dependabot[bot]'
+      && (github.event.action != 'labeled' || github.event.label.name == 'auto-fix')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    outputs:
+      verdict: ${{ steps.verdict.outputs.verdict }}
+      tier: ${{ steps.verdict.outputs.tier }}
+    steps:
+      - name: Is the key set?
+        id: key
+        env:
+          HAS_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+        run: |
+          echo "present=$HAS_KEY" >> "$GITHUB_OUTPUT"
+          if [ "$HAS_KEY" != "true" ]; then
+            echo "::warning::ANTHROPIC_API_KEY is not set; the AI review did not run. Add the secret (docs/pull-request-gates.md § 7)."
+          fi
+
+      - uses: actions/checkout@v7
+        if: steps.key.outputs.present == 'true'
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        if: steps.key.outputs.present == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (so a focused test can run)
+        if: steps.key.outputs.present == 'true'
+        run: |
+          npm ci
+          test -f amplify_outputs.json || echo '{}' > amplify_outputs.json
+
+      - name: Wait for Copilot's review
+        if: steps.key.outputs.present == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          start=$SECONDS
+          while :; do
+            # Copilot's request is on the PR's timeline as a review_requested
+            # event (the requested_reviewers endpoint does not
+            # list it), and is answered by a Copilot review submitted
+            # after it. A push does not re-request Copilot (review_on_push
+            # is off), so a PR Copilot has reviewed once never waits again.
+            # An API hiccup reads as "not asked": the review goes ahead
+            # rather than failing the check.
+            state=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/timeline?per_page=100" --paginate --slurp | jq -r '
+              [.[][]] as $t
+              | ([$t[] | select(.event == "review_requested" and ((.requested_reviewer.login // "") | test("copilot"; "i"))) | .created_at] | max // "") as $asked
+              | ([$t[] | select(.event == "reviewed" and ((.user.login // "") | test("copilot"; "i"))) | .submitted_at] | max // "") as $done
+              | if $asked == "" then "not asked" elif $done >= $asked then "done" else "pending" end' 2>/dev/null || echo "not asked")
+            waited=$((SECONDS - start))
+            if [ "$state" != "pending" ]; then echo "Copilot: $state (waited ${waited}s); reviewing with the threads that exist"; exit 0; fi
+            if [ "$waited" -ge 600 ]; then echo "::warning::Copilot's review was still pending after ten minutes; reviewing without it."; exit 0; fi
+            sleep 20
+          done
+
+      - name: Load the prompt and the result shape
+        if: steps.key.outputs.present == 'true'
+        id: files
+        run: |
+          {
+            echo 'prompt<<__PROMPT__'
+            echo "REPO: ${{ github.repository }}"
+            echo "PR NUMBER: ${{ github.event.pull_request.number }}"
+            echo "BASE BRANCH: ${{ github.event.pull_request.base.ref }}"
+            echo
+            cat .github/claude/review-prompt.md
+            echo '__PROMPT__'
+          } >> "$GITHUB_OUTPUT"
+          echo "schema=$(node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("fs").readFileSync(".github/claude/review-schema.json","utf8"))))')" >> "$GITHUB_OUTPUT"
+
+      - name: Review
+        if: steps.key.outputs.present == 'true'
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # The push to review may come from Claude under any bot identity
+          # (github-actions[bot] with the default token, the automation
+          # App's bot with its token); the job's `if` already decides whose
+          # PRs are reviewed, so every bot actor is allowed here: the action
+          # refuses "Workflow initiated by non-human actor" otherwise.
+          allowed_bots: "*"
+          prompt: ${{ steps.files.outputs.prompt }}
+          claude_args: |
+            --model claude-opus-5-5
+            --max-turns 120
+            --json-schema '${{ steps.files.outputs.schema }}'
+            --allowedTools "Read,Grep,Glob,mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr review:*),Bash(gh pr edit:*),Bash(gh label create:*),Bash(gh api:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(npx vitest run:*)"
+
+      - name: Verdict
+        if: steps.key.outputs.present == 'true'
+        id: verdict
+        env:
+          RESULT: ${{ steps.claude.outputs.structured_output }}
+          CONCLUSION: ${{ steps.claude.outputs.conclusion }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          if [ -z "$RESULT" ]; then
+            # The action refuses to run from a PR whose workflow file differs
+            # from the default branch's (its own safety rule). That PR is CODEOWNERS-held, so a person
+            # reviews it; the check says so and passes instead of holding it
+            # for a review that cannot happen.
+            git fetch --quiet origin "$BASE_REF" || true
+            if ! git diff --quiet "origin/$BASE_REF" -- .github/workflows/claude-review.yml 2>/dev/null; then
+              echo "::warning::This PR changes claude-review.yml, and the Claude Code Action only runs a workflow identical to the default branch's. The AI review starts on the next PR after this one merges; a lead reviews this one."
+              echo "verdict=not_run" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::error::The review produced no structured result (conclusion: $CONCLUSION). Re-run the job; if it repeats, the prompt or the schema is broken."
+            exit 1
+          fi
+          verdict=$(echo "$RESULT" | node -e 'const r=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(r.verdict)')
+          tier=$(echo "$RESULT" | node -e 'const r=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(String(r.tier))')
+          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+          echo "tier=$tier" >> "$GITHUB_OUTPUT"
+          echo "$RESULT" | node -e '
+            const r = JSON.parse(require("fs").readFileSync(0, "utf8"));
+            const lines = [`### AI review: ${r.verdict === "approve" ? "no blocking finding" : "changes requested"}`, "", r.summary, "", `Tier ${r.tier}${r.tier_reasons?.length ? ": " + r.tier_reasons.join("; ") : ""}`, ""];
+            for (const b of r.blocking ?? []) lines.push(`- **Blocking** \`${b.file}${b.line ? ":" + b.line : ""}\`: ${b.summary}`);
+            if (r.advisory_count) lines.push("", `${r.advisory_count} advisory finding(s), listed in the review summary on the PR.`);
+            if (r.not_exercised) lines.push("", `Not exercised: ${r.not_exercised}`);
+            require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join("\n") + "\n");
+          '
+          if [ "$verdict" != "approve" ]; then
+            echo "::error::The AI review found blocking issues; see the PR comments. Fix them (or comment \`@claude\` with instructions, or add the \`auto-fix\` label) and push."
+            exit 1
+          fi
+
+  fix:
+    name: claude-fix
+    needs: review
+    if: |
+      always() && needs.review.result == 'failure'
+      && needs.review.outputs.verdict == 'request_changes'
+      && contains(join(github.event.pull_request.labels.*.name, ','), 'auto-fix')
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          # The checkout would otherwise leave GITHUB_TOKEN in the git config
+          # as an Authorization header, which wins over the App token the
+          # action puts in the remote URL, so the
+          # fix pushes arrived as github-actions[bot] and the review of each
+          # fix was held for approval.
+          persist-credentials: false
+
+      - name: Stop if the last push was Claude's
+        # The action commits as a bot (github-actions[bot] by default, the
+        # automation App's bot when its token is given), so any bot author
+        # counts as Claude's push: one fix per human push.
+        run: |
+          author=$(git log -1 --format=%an)
+          if echo "$author" | grep -qiE 'claude|\[bot\]'; then
+            echo "The last commit is a bot's ($author); one fix per human push."
+            echo "skip=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: App token
+        id: app
+        if: env.skip != 'true' && vars.AUTOMATION_APP_ID != ''
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+
+      - uses: actions/setup-node@v7
+        if: env.skip != 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        if: env.skip != 'true'
+        run: |
+          npm ci
+          test -f amplify_outputs.json || echo '{}' > amplify_outputs.json
+
+      - name: Load the prompt
+        if: env.skip != 'true'
+        id: files
+        run: |
+          {
+            echo 'prompt<<__PROMPT__'
+            echo "REPO: ${{ github.repository }}"
+            echo "PR NUMBER: ${{ github.event.pull_request.number }}"
+            echo "BRANCH: ${{ github.event.pull_request.head.ref }}"
+            echo
+            cat .github/claude/fix-prompt.md
+            echo '__PROMPT__'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Fix
+        if: env.skip != 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # The App's token so the push starts the checks (see claude.yml);
+          # empty when the App is not set up, and the action uses its own.
+          github_token: ${{ steps.app.outputs.token }}
+          prompt: ${{ steps.files.outputs.prompt }}
+          claude_args: |
+            --model claude-opus-5-5
+            --max-turns 250
+            --allowedTools "Read,Write,Edit,Grep,Glob,Bash(git:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh api:*),Bash(npx vitest run:*),Bash(npx tsc:*),Bash(npx eslint:*),Bash(npm run check:pr:*)"

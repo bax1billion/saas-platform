@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "properties": {
+    "verdict": { "type": "string", "enum": ["approve", "request_changes"] },
+    "tier": { "type": "integer", "enum": [1, 2] },
+    "tier_reasons": { "type": "array", "items": { "type": "string" } },
+    "blocking": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "file": { "type": "string" },
+          "line": { "type": "integer" },
+          "summary": { "type": "string" }
+        },
+        "required": ["file", "summary"]
+      }
+    },
+    "advisory_count": { "type": "integer" },
+    "not_exercised": { "type": "string" },
+    "summary": { "type": "string" }
+  },
+  "required": ["verdict", "tier", "blocking", "summary"]
+}
