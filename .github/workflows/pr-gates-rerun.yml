@@ -1,0 +1,61 @@
+# After a review is submitted or dismissed, the Tier 1 hold has to be judged
+# again without a new push. Starting another gate run on the review event
+# does not do it: GitHub reads a required check per run (check suite) and
+# keeps the PR blocked while any run on the head still reports it red, so a
+# green `tier-1 review` from a review-event run never overrode the red one
+# from the push (Oct 29, 2026: five lead-approved PRs sat blocked with both
+# on the head; rerunning the red jobs merged all five within two minutes).
+#
+# So this workflow starts no gate job of its own. On an approval it reruns
+# the failed jobs of every finished `PR gates` run on the head, which is the
+# `tier-1 review` job rereading the reviews (docs/pull-request-gates.md § 5).
+# On a dismissal, or a person asking for changes, it reruns the latest gate
+# run whole, so a hold that had been released goes red again.
+name: PR gates rerun
+
+on:
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: gates-rerun-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  rerun:
+    name: rerun the gates on the head
+    # A bot's review (the AI review, Copilot) changes nothing the hold reads
+    # directly; the review labels the PR instead, and the `labeled` event
+    # starts a gate run of its own.
+    if: github.event.review.user.type != 'Bot' && (github.event.review.state == 'approved' || github.event.review.state == 'changes_requested' || github.event.action == 'dismissed')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Rerun the red gate jobs on the head (or the latest run whole after a dismissal)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          ACTION: ${{ github.event.action }}
+          STATE: ${{ github.event.review.state }}
+        run: |
+          set -euo pipefail
+          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$HEAD&per_page=50" \
+            --jq '[.workflow_runs[] | select(.name == "PR gates" and .event != "push" and .status == "completed")]')
+          if [ "$ACTION" = "dismissed" ] || [ "$STATE" = "changes_requested" ]; then
+            latest=$(jq -r 'sort_by(.created_at) | last | .id // empty' <<< "$runs")
+            if [ -z "$latest" ]; then echo "no finished gate run on $HEAD; the next push judges it"; exit 0; fi
+            gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$latest/rerun" > /dev/null
+            echo "rerun $latest whole: the hold is judged again after the $ACTION/$STATE review"
+            exit 0
+          fi
+          n=0
+          for id in $(jq -r '.[] | select(.conclusion == "failure") | .id' <<< "$runs"); do
+            gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$id/rerun-failed-jobs" > /dev/null
+            echo "rerun the failed jobs of $id"
+            n=$((n + 1))
+          done
+          if [ "$n" = "0" ]; then echo "no red gate run on $HEAD; nothing to rerun"; fi

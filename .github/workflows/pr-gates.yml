@@ -3,24 +3,25 @@
 #
 # `conventions` and `tier-1 review` run scripts/pr-gates/check.mjs, which
 # needs node and gh and nothing from node_modules, so neither installs.
-# `tier-1 review` also runs when a review is submitted or dismissed, so a
-# lead's approval turns the check green without a new push.
+# A lead's approval turns `tier-1 review` green without a new push through
+# `pr-gates-rerun.yml`, which reruns this workflow's red jobs on the head: a
+# second run of the same check on a review event never counted, because
+# GitHub reads a required check per run and keeps the red one.
 name: PR gates
 
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, edited, labeled, unlabeled]
-  pull_request_review:
-    types: [submitted, dismissed]
   push:
     branches: [main]
 
-# One run per PR per kind of event. The review's summary arrives as a
-# `pull_request_review` event two to five minutes after a push, while the
-# push's own run is still going; with one group per PR it cancelled that
-# run, the head kept cancelled `conventions` and `secret-scan` check runs,
-# and PRs sat blocked with every other check green (fourteen PRs in one
-# afternoon, Oct 2026). A review event now cancels only an older review event's run.
+# One run per PR per kind of event. A `labeled` event (the AI review's
+# `tier-1-by-review`, this workflow's own `tier-1`) is a `pull_request`
+# event and replaces a push's run still going, so a head can show cancelled
+# check runs beside the finished ones; a cancelled run has not blocked a
+# merge once another run had the check green, a failed run has. Until Oct
+# 29, 2026 the review's summary, a `pull_request_review` event, also ran
+# here and cancelled the push's run.
 concurrency:
   group: gates-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
@@ -170,8 +171,8 @@ jobs:
 
   audit:
     name: dependency audit
-    # Runs on review events too: a skipped job reports as passing for the
-    # same commit and would stand in for an earlier failure.
+    # Runs on every PR event the workflow takes, never skipped: a skipped
+    # job would report a check run of this name on the head too.
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10

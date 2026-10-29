@@ -112,10 +112,10 @@ cannot release its own paths by editing the file), a removed test, an edited
 test outside the module whose code the PR changes, a public, guest or
 authenticated rule added to a module schema, an outbound SDK or `fetch`
 added to a module Lambda, or the `tier-1-by-review` label the AI review
-adds. A lead's approval turns the check green without a new push: the
-workflow also runs on review events. The latest decisive review per lead
-counts, so an approval withdrawn by a later "changes requested" no longer
-releases the PR.
+adds. A lead's approval turns the check green without a new push:
+`pr-gates-rerun.yml` reruns the red job in place (§ 5). The latest decisive
+review per lead counts, so an approval withdrawn by a later "changes
+requested" no longer releases the PR.
 
 Run it before opening a PR: `npm run check:pr` reads the PR of the current
 branch through `gh`.
@@ -289,13 +289,33 @@ refused and GitHub switches it off again. Rename the ref before applying and
 set `RELEASE_BRANCH` in `scripts/pr-gates/local.mjs` so the conventions
 check knows the promotion PR's shape.
 
+**A lead's approval and the hold.** A required check is read per run: when
+two runs on the same head report `tier-1 review`, one red from the push and
+one green from a later event, GitHub keeps the PR blocked on the red one.
+The first design ran the gates again on every `pull_request_review` event
+and expected the green run to count; it never did, and in the product repo
+no Tier 1 PR merged on an approval for three days, every one was merged by
+the lead by hand, until five approved PRs were seen blocked with a green
+review-event run beside the red push run and rerunning the red jobs in
+place merged all five within two minutes (Oct 29, 2026). So the gates do
+not run on review events. `pr-gates-rerun.yml` does one thing instead: on
+a person's approval it reruns the failed jobs of every finished gate run
+on the head (`rerun-failed-jobs`), which is the Tier 1 job rereading the
+reviews and going green in the run that was red; after a dismissal, or a
+person asking for changes, it reruns the latest gate run whole, so a
+released hold goes red again. A bot's review starts nothing here: the AI
+review labels the PR, and the `labeled` event is a gate run of its own. If
+a lead-approved PR ever sits blocked with `tier-1 review` red in an older
+run, the hand version is `gh run rerun <run id> --failed` on that run.
+
 **Workflow concurrency.** Each workflow cancels its own older runs for the
-same PR, and the group includes the event name. Without that, the AI
-review's summary (a `pull_request_review` event two to five minutes after a
-push) cancelled the push's gates run, the head kept cancelled `conventions`
-and `secret-scan` check runs, and PRs sat blocked with every other check
-green. The REST check-runs endpoint hides cancelled runs by default
-(`filter=latest`); the GraphQL `statusCheckRollup` shows them.
+same PR, and the group includes the event name. A `labeled` event (the AI
+review's label, the Tier 1 job's own) is a `pull_request` event and
+replaces a push's run still going, so a head can show cancelled check runs
+beside finished ones; a cancelled run has not blocked a merge once a later
+run had the check green, a failed run has. The REST check-runs endpoint
+hides cancelled runs by default (`filter=latest`); the GraphQL
+`statusCheckRollup` shows them.
 
 ## 6. The deploy result in GitHub
 
@@ -422,6 +442,11 @@ listed so the next person recognises it.
   the GraphQL `statusCheckRollup` for cancelled check runs on the head (a
   concurrency cancellation that was never rerun), and at `mergeable_state`:
   `clean` means auto-merge needs the off-and-on nudge (§ 5).
+- **A lead approved a Tier 1 PR and it stays blocked on `tier-1 review`.**
+  The push's gate run is still red; a green run of the same check from
+  another event does not override it. `pr-gates-rerun.yml` reruns the red
+  job on an approval (§ 5); if it did not fire, `gh run rerun <id> --failed`
+  on that run.
 - **Claude's push started runs that sit "action required".** The push went
   out as `github-actions[bot]`: the App token is missing, or the checkout
   persisted its credentials (§ 4). Approve the held runs by their id and fix
