@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { leadReviewers, ownersOf, parseCodeowners } from "./rules.mjs";
+import { REGISTRY_FILES, leadReviewers, ownersOf, parseCodeowners } from "./rules.mjs";
 
 /**
  * .github/CODEOWNERS is read by GitHub and by the `tier-1 review` check,
@@ -31,13 +31,16 @@ describe(".github/CODEOWNERS", () => {
     expect(rules.some((r) => r.owners.length === 0)).toBe(true);
   });
 
+  it("leaves the seam registries to the tier-1 review check, which reads them line by line", () => {
+    for (const p of REGISTRY_FILES.filter((p) => existsSync(join(root, p)))) expect(ownersOf(p, rules), p).toEqual([]);
+    expect(ownersOf("amplify/data/domains/index.ts", rules)).not.toEqual([]);
+  });
+
   it("holds the foundation: the backend, the app frame, the shared services, the gates, the rulebooks", () => {
     for (const held of [
       "amplify/data/resource.ts",
-      "amplify/data/vertical.ts",
       "amplify/data/entitlements/index.ts",
       "amplify/data/record-access/index.ts",
-      "amplify/data/assist-helpers.ts",
       "amplify/backend.ts",
       "amplify/functions/create-organization/handler.ts",
       "amplify/functions/assist-run/handler.ts",

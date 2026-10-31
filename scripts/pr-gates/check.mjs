@@ -60,11 +60,12 @@ try {
 const baseRev = `origin/${baseRef}`;
 const mergeBase = sh("git", ["merge-base", baseRev, "HEAD"]).trim();
 
-const addedLinesOf = (diffText) =>
+const linesOf = (diffText, sign) =>
   diffText
     .split("\n")
-    .filter((l) => l.startsWith("+") && !l.startsWith("+++"))
+    .filter((l) => l.startsWith(sign) && !l.startsWith(sign.repeat(3)))
     .map((l) => l.slice(1));
+const addedLinesOf = (diffText) => linesOf(diffText, "+");
 
 const commits = sh("git", ["log", `${mergeBase}..HEAD`, "--no-merges", "--format=%H%x00%s"])
   .split("\n")
@@ -85,10 +86,13 @@ const files = sh("git", ["diff", "--name-status", "--no-renames", `${mergeBase}.
     const status = parts[0][0];
     const path = parts[parts.length - 1];
     let addedLines = [];
+    let removedLines = [];
     if (status !== "D" && /\.(tsx?|css|mjs|js|json)$/.test(path)) {
-      addedLines = addedLinesOf(sh("git", ["diff", "-U0", "--no-color", `${mergeBase}...HEAD`, "--", path]));
+      const diff = sh("git", ["diff", "-U0", "--no-color", `${mergeBase}...HEAD`, "--", path]);
+      addedLines = addedLinesOf(diff);
+      removedLines = linesOf(diff, "-");
     }
-    return { path, status, addedLines };
+    return { path, status, addedLines, removedLines };
   });
 
 // 3. The repo's own facts. CODEOWNERS comes from the base branch, as GitHub

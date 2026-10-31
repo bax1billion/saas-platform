@@ -23,7 +23,8 @@ to the commit.
 pure logic under `modules/<id>/lib/`, its thin routes, its own schema file
 (`amplify/data/modules/<id>.ts`) and its own Lambdas, its published contract
 under `lib/services/<id>/`, its own tests edited beside its code, its spec and
-changelog; shared UI under `components/`, the theme tokens, the map engine
+changelog; its own line in a seam registry (§ 2, "Registry lines"); shared UI
+under `components/`, the theme tokens, the map engine
 and the other helpers under `lib/` that are not foundation; copy and docs that
 are not rulebooks. Every check green, the AI review with no blocking finding,
 every review thread resolved.
@@ -111,14 +112,87 @@ The same script in `--mode tier` decides Tier 1: an owned path in
 cannot release its own paths by editing the file), a removed test, an edited
 test outside the module whose code the PR changes, a public, guest or
 authenticated rule added to a module schema, an outbound SDK or `fetch`
-added to a module Lambda, or the `tier-1-by-review` label the AI review
+added to a module Lambda, a seam registry changed beyond the module's own
+lines ("Registry lines" below), or the `tier-1-by-review` label the AI review
 adds. A lead's approval turns the check green without a new push:
 `pr-gates-rerun.yml` reruns the red job in place (§ 5). The latest decisive
 review per lead counts, so an approval withdrawn by a later "changes
 requested" no longer releases the PR.
 
+**Registry lines.** Seven foundation files hold one line, or one block, per
+module and nothing of their own: `amplify/data/vertical.ts` and its
+composition test (`vertical.test.ts`, where the tree has one),
+`amplify/data/domains/assignments.ts` and `registry.ts`,
+`amplify/data/export-providers.ts`, `amplify/data/assist-helpers.ts` and the
+audit log policy `amplify/functions/event-logger/log-policy.ts`
+(`REGISTRY_FILES` in `rules.mjs`; a path a tree does not have is never
+changed, so naming it costs nothing). A module gains a table, a command, an
+export provider, an Assist helper or a domain by adding its own line to one of
+them. Such an addition is module work, and CODEOWNERS does not hold the seven
+files by path (GitHub cannot hold a file by what changed in it): the `tier-1
+review` check reads them line by line instead. It releases a registry file
+when every changed line is a registration shape and the file only gained. The
+shapes are an import line or one specifier of a spread-out import, a list of
+items (names, strings, spreads), a key and its value (a name, a string, a list
+of them, a `new Set([...])`, the `{` or `[` that opens a block), a member of a
+type union, and in the composition test one `expect(...)` chain as the whole
+line with only names, strings and member paths inside its parentheses (so
+nothing runs in it: no `load(...)`, no `vi.spyOn`, no `.sort((a, b) => ...)`);
+a statement of any kind (`const`, a call, an assignment, `delete`, `if`, a
+second statement after the assertion) is never a registration, whatever it
+names. The added lines that are not a grown line balance their brackets in
+order as one block of the module's own: a `},` that closes another module's
+block before `kit: {` opens would move that module's tables and commands under
+Kit, and is held. In `vertical.ts` a module's block has keys whose value
+reaches past its own tables: `sharedModuleTables` (other modules may write a
+table), `recordAccess` (who reads a record), `foundationModels` and
+`foundationFunctions` (operations on the foundation API) and `apiSteps` (code
+run against the whole API). Their values live in the module's own schema file,
+and nothing checks whose table a shared entry names, so a changed line with
+one of those keys keeps the hold however well it is formed, bare or quoted
+(`WIDENING_KEYS`), and so does a spread line in that file
+(`...kitBlockExtras,`), since the object it spreads is module code that can
+carry any key; the composition test also fails a gated, shared, streamed or
+record-access table that is not one of the declaring module's own models. A
+computed key registers only in the provider and helper seams and only as
+`[name.property]: name`, the way they are written; the rule cannot see what a
+name holds, so a provider registered under another module's record type is the
+AI review's to catch, and a computed key in the audit log policy keeps the
+hold. Every line is read as tokens, the `//` comment at its end left out;
+every removed line comes back as an added line, or a run of them, that kept
+every token in order and grew only by tokens naming a module whose code the PR
+changes, with the commas, brackets and dots a list grows by and the `& typeof`
+a type union grows by (never `&& kitGate`), at the top of the line or inside a
+list or object literal and never inside a call's parentheses, which is how an
+import list or the composition test's sorted list of functions grows by one;
+every other added line names such a module in one of its words and names no
+other module, or is a brace, a bracket, a whole-line `//` comment or an
+`import {` opener. A module is named by a word of an identifier or a string
+(`publishKitForm`, `'KitFieldNote'`, `kit214ExportProvider`), never by a
+substring (`already` is not Ready's, `return` is not Run's) and never in a
+comment. Anything else in one of the seven files is Tier 1 by this check: a
+statement, a deletion, a renamed word, a changed operator (`&&` to `||`), a
+line commented out, a line naming another module (a module moved to another
+domain is a deletion of its old line), a `/*` or `*/` on any changed line (the
+rule cannot tell a comment from code without the file around it, so a JSDoc
+line reworded keeps the hold too), a removed line of brackets (a module never
+moves another block's brackets; paired with an added `},` anywhere, it let a
+block be split around it), or a PR that changes nothing but a registry. The
+sticky comment names what the rule released or held. `config/modules.ts` is
+not a registry here: a new product is a lineup decision. The first version of
+the rule read words and substrings and released any line naming the module;
+every hold above closes a way a reviewer found around it.
+
 Run it before opening a PR: `npm run check:pr` reads the PR of the current
 branch through `gh`.
+
+The scripts a PR is judged by are the base branch's (`git archive
+origin/<base> scripts/pr-gates` over a checkout of the PR's head), as
+CODEOWNERS already is: the commits, the diff and the module list are the PR's,
+the rules are the repo's. A branch opened before a rule was retired is not
+judged by it, and a PR cannot soften the script it is judged by. A change to
+the gate scripts applies once it has merged, never to its own PR; `npm run
+check:pr` by hand still runs the checkout's copy.
 
 ## 3. Coverage floors
 
@@ -217,6 +291,15 @@ makes the check required. When the key's workspace hits its spending limit,
 every run fails in under a second with one turn, zero tokens and "no
 structured output"; the action's log never prints the API error, so that
 pattern means the Anthropic Console, not the prompt.
+
+A skipped job reports its check as passed, so the job carries the required
+name only on the events it reviews: on a `labeled` event for any label but
+`auto-fix`, and on a draft, it runs as `claude-review (not run)`, and the
+`claude-review` check on a head is only ever the review's own run. Otherwise
+the `tier-1-by-review` label the review adds starts a second run a minute
+after the verdict and `gh pr checks` shows `claude-review: skipped` beside the
+real result; a red run holds the merge whatever comes after it (§ 5), but the
+check should read as what it is.
 
 Copilot code review stays on as a second reader. It cannot fail a check; its
 threads block the merge until the review or a person answers them. Its

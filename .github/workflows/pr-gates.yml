@@ -2,7 +2,9 @@
 # as a check, the Tier 1 hold, the secret scan and the dependency audit.
 #
 # `conventions` and `tier-1 review` run scripts/pr-gates/check.mjs, which
-# needs node and gh and nothing from node_modules, so neither installs.
+# needs node and gh and nothing from node_modules, so neither installs. The
+# script and its rules are taken from the base branch, as CODEOWNERS is,
+# over a checkout of the PR's head (the commits and the diff are the PR's).
 # A lead's approval turns `tier-1 review` green without a new push through
 # `pr-gates-rerun.yml`, which reruns this workflow's red jobs on the head: a
 # second run of the same check on a review event never counted, because
@@ -48,12 +50,26 @@ jobs:
         with:
           node-version: 22
 
+      # The rules a PR is judged by are the base branch's, as CODEOWNERS
+      # already is: an old branch is not judged by a rule since retired, and
+      # a PR cannot soften the script it is judged by. A change to the
+      # scripts applies once it has merged; `npm run check:pr` by hand still
+      # runs the checkout's copy.
+      - name: Take the gate scripts from the base branch
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin "$BASE"
+          mkdir -p "$RUNNER_TEMP/gates"
+          git archive "origin/$BASE" scripts/pr-gates | tar -x -C "$RUNNER_TEMP/gates"
+
       - name: Base, commits, forbidden files, toasts, hex, changelog, tests
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: node scripts/pr-gates/check.mjs --mode conventions
+        run: node "$RUNNER_TEMP/gates/scripts/pr-gates/check.mjs" --mode conventions
 
   tier-1:
     name: tier-1 review
@@ -74,6 +90,20 @@ jobs:
         with:
           node-version: 22
 
+      # The rules a PR is judged by are the base branch's, as CODEOWNERS
+      # already is: an old branch is not judged by a rule since retired, and
+      # a PR cannot soften the script it is judged by. A change to the
+      # scripts applies once it has merged; `npm run check:pr` by hand still
+      # runs the checkout's copy.
+      - name: Take the gate scripts from the base branch
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin "$BASE"
+          mkdir -p "$RUNNER_TEMP/gates"
+          git archive "origin/$BASE" scripts/pr-gates | tar -x -C "$RUNNER_TEMP/gates"
+
       - name: Classify (CODEOWNERS paths, edited tests, the AI review's label)
         id: tier
         continue-on-error: true
@@ -81,7 +111,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: node scripts/pr-gates/check.mjs --mode tier
+        run: node "$RUNNER_TEMP/gates/scripts/pr-gates/check.mjs" --mode tier
 
       - name: Label and explain
         env:
