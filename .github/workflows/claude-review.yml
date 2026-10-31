@@ -27,6 +27,15 @@
 #
 # Needs the ANTHROPIC_API_KEY repository secret and the Claude GitHub App
 # (installed). Without the secret the check is skipped and says why.
+#
+# A skipped job reports its check as passed, so the job carries the
+# required name only on the events it reviews. On a `labeled` event for any
+# label but `auto-fix`, and on a draft, it runs as `claude-review (not run)`
+# and the `claude-review` check on a head is only ever the review's own run;
+# otherwise the `tier-1-by-review` label the review adds starts a second run
+# a minute after the verdict that shows `claude-review: skipped` beside the
+# real result. Dependabot's PRs keep the name: skipped is the pass they are
+# meant to get.
 name: Claude review
 
 on:
@@ -41,7 +50,7 @@ permissions: {}
 
 jobs:
   review:
-    name: claude-review
+    name: ${{ (github.event.pull_request.draft || (github.event.action == 'labeled' && github.event.label.name != 'auto-fix')) && 'claude-review (not run)' || 'claude-review' }}
     if: |
       github.event.pull_request.draft == false
       && github.event.pull_request.user.login != 'dependabot[bot]'
