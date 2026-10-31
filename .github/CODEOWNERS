@@ -56,6 +56,21 @@
 /amplify/                              @bax1billion
 /amplify/data/modules/
 
+# The seam registries, where a module adds its own line (its tables and
+# commands in vertical.ts, its data domain, an export provider, an Assist
+# helper). Released: the `tier-1 review` check reads them line by line
+# instead (scripts/pr-gates/rules.mjs `additiveRegistryChange`,
+# docs/pull-request-gates.md § 2 "Registry lines"). A file that only gained
+# the PR's own module lines is module work; any other edit to one of them
+# is Tier 1 by that check. GitHub cannot hold a file by what changed in it,
+# so the hold lives in the check. A product with the composition test
+# (vertical.test.ts) and the audit log policy adds their lines here.
+/amplify/data/vertical.ts
+/amplify/data/domains/assignments.ts
+/amplify/data/domains/registry.ts
+/amplify/data/export-providers.ts
+/amplify/data/assist-helpers.ts
+
 # The app frame: providers, the sign-in gate, the shell, onboarding,
 # billing. The theme (`app/globals.css`) is not held: its Field floor
 # values are pinned by `lib/field-floor.test.ts`, which is.
